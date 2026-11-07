@@ -88,6 +88,23 @@ shows both; for the CI debug APK use the debug key SHA-1 printed by
 2. Expected: they complete the Google setup wizard (project, consent screen, Web and
    Android clients, paste ID and secret) in under 15 minutes without help.
 
+## P2
+
+### MC-P2-ANDROID-WEBVIEW: Android 9 device with an updated WebView (FR-CLI-02, DL-024)
+1. On a real Android 9 phone, update "Android System WebView" (or Chrome) from the store.
+2. Install the APK from the CI artifact, open it: the "Connect to your server" screen shows.
+3. Pair, sign in, open the Chief of Staff chat and send a message; the streamed reply appears.
+
+### MC-P2-SUBSCRIPTIONS: real subscription round-trips (FR-BOT-04, D-07c)
+1. Build the bot-computer image (`podman build -t localhost/advence-bot-computer:latest images/bot-computer`).
+2. On your own computer run `claude setup-token`, then in Settings > Models and keys add a "Claude subscription" source and paste the token. Give a Bot that source and chat: a reply arrives; the "personal use only" notice is shown.
+3. Add a "ChatGPT subscription" source, press Sign in, open the shown URL, enter the code. When it shows "Signed in", chat with a Bot on that source: a reply arrives.
+
+### MC-P2-PUSH: Android push through ntfy (D-18, FR-PRO-08 base)
+1. Run the server with the ntfy sidecar (`ADVENCE_NTFY_BIN`, `ADVENCE_NTFY_BASE_URL`), or set the push server in Settings > Notifications to your ntfy URL.
+2. On the phone install the ntfy app (the UnifiedPush distributor) and point it at that server.
+3. In the app, Settings > Notifications shows "This device receives notifications". Lock the phone, send a message from the desktop to a Bot: the phone shows a notification within 10 s, and the notification text has no message content.
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|

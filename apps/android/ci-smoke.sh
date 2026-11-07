@@ -3,6 +3,8 @@
 # and checks that the app stays up, loads the bundled UI, and has backups disabled.
 set -euo pipefail
 APK="$1"
+# "page": the bundled page loaded; "ui": the React UI rendered its first screen.
+LEVEL="${2:-ui}"
 PKG=com.stellarcortex.advence
 adb wait-for-device
 adb install -r "$APK"
@@ -21,7 +23,8 @@ if grep -q "FATAL EXCEPTION" logcat.txt; then echo "app crashed"; grep -A30 "FAT
 ok=""
 for _ in 1 2 3 4 5 6; do
   adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
-  if adb shell cat /sdcard/ui.xml 2>/dev/null | grep -q "Connect to your server"; then ok=1; break; fi
+  if [ "$LEVEL" = page ]; then want='text="StellarCortex Advence" resource-id="" class="android.webkit.WebView"'; else want="Connect to your server"; fi
+  if adb shell cat /sdcard/ui.xml 2>/dev/null | grep -qF "$want"; then ok=1; break; fi
   sleep 5
 done
 [ -n "$ok" ] || { echo "bundled UI not loaded"; adb shell cat /sdcard/ui.xml | head -c 4000; tail -50 logcat.txt; exit 1; }

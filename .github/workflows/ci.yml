@@ -89,12 +89,22 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # Android 9 (minSdk): installs, starts, loads the bundled page, no crash. Its stock
+      # emulator WebView is never updated, so the rendered UI is checked on a current image
+      # (real Android 9 devices update Android System WebView through the store, DL-024).
       - name: Emulator smoke test, Android 9 (API 28)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 28
           arch: x86_64
-          script: bash apps/android/ci-smoke.sh apps/android/android/app/build/outputs/apk/debug/app-x86_64-debug.apk
+          script: bash apps/android/ci-smoke.sh apps/android/android/app/build/outputs/apk/debug/app-x86_64-debug.apk page
+      - name: Emulator smoke test, Android 14 (API 34)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          script: bash apps/android/ci-smoke.sh apps/android/android/app/build/outputs/apk/debug/app-x86_64-debug.apk ui
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
