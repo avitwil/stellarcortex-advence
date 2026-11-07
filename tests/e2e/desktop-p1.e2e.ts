@@ -25,7 +25,12 @@ beforeAll(async () => {
   await configureGoogle(await pairedClient(env));
 });
 afterAll(async () => {
-  await app?.close().catch(() => undefined);
+  // Bounded shutdown: if Electron does not quit in time, kill it.
+  if (app) {
+    const proc = app.process();
+    await Promise.race([app.close().catch(() => undefined), new Promise((r) => setTimeout(r, 10_000))]);
+    if (proc.exitCode === null) proc.kill('SIGKILL');
+  }
   await env?.close();
   xvfb?.kill();
 });

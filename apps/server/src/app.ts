@@ -81,6 +81,8 @@ export async function startServer(o: BootOptions): Promise<Server> {
     bodyLimit: 30 * 1024 * 1024,
     https: { key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3' },
     trustProxy: false,
+    // Shutdown must not wait for clients holding keep-alive connections open.
+    forceCloseConnections: true,
   });
   app.removeAllContentTypeParsers();
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body: Buffer, done) => {
