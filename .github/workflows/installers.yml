@@ -1,0 +1,34 @@
+# Windows and macOS installers (FR-CLI-01). Run on demand only, because macOS and Windows
+# runner minutes count 10x/2x against the free private-repo quota (C-04, DL-020).
+# Builds only; nothing is published (C-07).
+name: installers
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm --filter @advence/desktop dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+          retention-days: 7

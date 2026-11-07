@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">StellarCortex Advence</string>
+    <string name="title_activity_main">StellarCortex Advence</string>
+    <string name="package_name">com.stellarcortex.advence</string>
+    <string name="custom_url_scheme">com.stellarcortex.advence</string>
+</resources>

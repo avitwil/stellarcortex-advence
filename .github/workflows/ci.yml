@@ -1,0 +1,122 @@
+# CI for every push and pull request. Builds and tests only; nothing is published,
+# tagged or released from here (C-07). Artifacts stay private to this repository.
+name: ci
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm check:brand
+      - run: pnpm check:licenses
+      - run: pnpm test
+      - name: E2E prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          # Ubuntu 24.04 blocks unprivileged user namespaces; Electron's sandbox needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+
+  bot-computer-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build bot computer image (Podman, D-09)
+        run: podman build -t localhost/advence-bot-computer:ci images/bot-computer
+      - name: Smoke test
+        run: |
+          printf 'ci-only-password' | podman secret create vnc_password -
+          podman run -d --name bc --secret vnc_password -p 127.0.0.1:6080:6080 localhost/advence-bot-computer:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:6080/vnc.html -o /dev/null && break; sleep 2; done
+          curl -fsS http://127.0.0.1:6080/vnc.html -o /dev/null
+          test "$(podman exec bc id -u)" = "1000"
+          podman rm -f bc
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @advence/android build
+      - name: Build APKs (FR-CLI-02)
+        working-directory: apps/android/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ADVENCE_ANDROID_KEYSTORE_B64 }}
+          ADVENCE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ADVENCE_ANDROID_KEYSTORE_PASSWORD }}
+          ADVENCE_ANDROID_KEY_ALIAS: ${{ secrets.ADVENCE_ANDROID_KEY_ALIAS }}
+          ADVENCE_ANDROID_KEY_PASSWORD: ${{ secrets.ADVENCE_ANDROID_KEY_PASSWORD }}
+        run: |
+          # The release keystore exists only as an optional repository secret; without it the
+          # release APK is left unsigned.
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export ADVENCE_ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
+          fi
+          ./gradlew --no-daemon assembleDebug assembleRelease
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulator smoke test, Android 9 (API 28)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          arch: x86_64
+          script: bash apps/android/ci-smoke.sh apps/android/android/app/build/outputs/apk/debug/app-x86_64-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: apps/android/android/app/build/outputs/apk/**/*.apk
+          retention-days: 7
+
+  desktop-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @advence/desktop dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+          retention-days: 7
