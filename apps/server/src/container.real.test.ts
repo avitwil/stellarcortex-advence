@@ -39,6 +39,32 @@ async function until(f: () => Promise<boolean>, ms: number): Promise<void> {
 }
 
 /** Runs a shell command in the Bot's computer as the Bot's user. */
+/** Opens chrome://sandbox in a running Chromium through DevTools and prints the page text. */
+const SANDBOX_PAGE = `const port = process.argv[2];
+let list;
+for (let i = 0; i < 100 && !list; i++) {
+  try { list = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json(); } catch { await new Promise((r) => setTimeout(r, 200)); }
+}
+const page = list.find((t) => t.type === 'page');
+const ws = new WebSocket(page.webSocketDebuggerUrl);
+await new Promise((r) => ws.addEventListener('open', r, { once: true }));
+let id = 0;
+const call = (method, params = {}) => new Promise((resolve) => {
+  const my = ++id;
+  const on = (e) => { const m = JSON.parse(e.data); if (m.id === my) { ws.removeEventListener('message', on); resolve(m.result); } };
+  ws.addEventListener('message', on);
+  ws.send(JSON.stringify({ id: my, method, params }));
+});
+await call('Page.navigate', { url: 'chrome://sandbox' });
+for (let i = 0; i < 80; i++) {
+  const r = await call('Runtime.evaluate', { expression: 'document.body ? document.body.innerText : ""', returnByValue: true });
+  const t = (r && r.result && r.result.value) || '';
+  if (/sandboxed/.test(t)) { console.log(t); process.exit(0); }
+  await new Promise((r) => setTimeout(r, 250));
+}
+console.log('chrome://sandbox did not load');
+process.exit(1);`;
+
 async function sh(cmd: string, timeoutMs = 120_000): Promise<{ code: number; out: string; err: string }> {
   const run = env.server.computers.manager.exec(botId, ['bash', '-lc', cmd], { signal: AbortSignal.timeout(timeoutMs) });
   let out = '';
@@ -126,9 +152,18 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
   it('FR-PC-04 Chromium runs with its sandbox on, without --no-sandbox', async () => {
     const flags = (await sh('grep -rlI -- "--no-sandbox" /usr/bin/chromium* /etc/chromium* /usr/lib/chromium* 2>/dev/null; true')).out;
     expect(flags).toBe('');
-    const r = await sh('timeout 90 chromium --headless=new --no-first-run --disable-gpu --virtual-time-budget=5000 --dump-dom chrome://sandbox 2>/tmp/chromium.err', 120_000);
-    const why = r.out ? '' : (await sh('grep -v crashpad /tmp/chromium.err | head -n 30; unshare -Ur true && echo userns-ok || echo userns-denied; unshare -Urpnf true && echo pidnet-ok || echo pidnet-denied; cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null; cat /proc/self/attr/current 2>/dev/null; grep -E "Seccomp|NoNewPrivs|CapBnd" /proc/self/status')).out;
+    // Headless Chromium will not render chrome://sandbox from the command line, so the page is
+    // opened and read through the DevTools protocol on the container's loopback.
+    const script = Buffer.from(SANDBOX_PAGE).toString('base64');
+    const r = await sh(
+      `echo ${script} | base64 -d > /tmp/sandbox-page.mjs; ` +
+        '(chromium --headless=new --no-first-run --disable-gpu --remote-debugging-port=9333 --user-data-dir=/tmp/sbx-profile about:blank 2>/tmp/chromium.err &); ' +
+        'timeout 60 node /tmp/sandbox-page.mjs 9333; pkill -f sbx-profile; true',
+      120_000,
+    );
+    const why = /sandboxed/.test(r.out) ? '' : (await sh('grep -vE "crashpad|dbus" /tmp/chromium.err | tail -n 20')).out;
     expect(r.out, why).toMatch(/You are adequately sandboxed/);
+    expect(r.out).toMatch(/Seccomp-BPF sandbox\s+Yes/);
     expect(r.out).not.toMatch(/not adequately sandboxed/i);
   }, 150_000);
 
