@@ -98,12 +98,18 @@ jobs:
           api-level: 28
           arch: x86_64
           script: bash apps/android/ci-smoke.sh apps/android/android/app/build/outputs/apk/debug/app-x86_64-debug.apk page
+      - name: Free disk space for the second emulator
+        run: |
+          rm -rf ~/.android/avd/* ~/.gradle/caches
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL /usr/local/lib/android/sdk/ndk
+          df -h /
       - name: Emulator smoke test, Android 14 (API 34)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
+          disk-size: 2048M
           script: bash apps/android/ci-smoke.sh apps/android/android/app/build/outputs/apk/debug/app-x86_64-debug.apk ui
       - uses: actions/upload-artifact@v4
         with:
