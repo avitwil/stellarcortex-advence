@@ -1,0 +1,29 @@
+{
+  "name": "@advence/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": { "advence": "./dist/main.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js serve"
+  },
+  "dependencies": {
+    "@advence/protocol": "workspace:*",
+    "@peculiar/x509": "^1.12.0",
+    "better-sqlite3": "^12.4.0",
+    "fastify": "^5.6.0",
+    "jose": "^6.1.0",
+    "pino": "^9.9.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/qrcode": "^1.5.5",
+    "@types/ws": "^8.18.1"
+  }
+}

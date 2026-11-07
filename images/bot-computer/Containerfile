@@ -1,0 +1,47 @@
+# StellarCortex Advence bot computer (D-09, FR-PC-01).
+# Built locally on the operator's machine at install time; never published to a registry.
+# Coding engines are NOT baked in: they are installed into the persistent home volume
+# from their official registries on first start (C-06).
+FROM docker.io/library/ubuntu:26.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+# "debian" installs Chromium from Debian stable (Ubuntu ships Chromium only as a snap,
+# which cannot run in a container). "none" skips it (used only by offline test builds
+# that bind-mount a Chromium build instead).
+ARG CHROMIUM_SOURCE=debian
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg tini locales \
+      xfce4 xfce4-terminal xfce4-taskmanager dbus-x11 at-spi2-core \
+      tigervnc-standalone-server tigervnc-tools novnc websockify \
+      xdotool x11-utils x11-xserver-utils imagemagick \
+      fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji fonts-noto-hinted xdg-utils \
+      git openssh-client build-essential python3 python3-venv python3-pip pipx \
+      nodejs npm ripgrep unzip zip jq less nano vim-tiny procps \
+      libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libxkbcommon0 libxcomposite1 \
+      libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libxshmfence1 \
+ && sed -i 's/^# *\(en_US.UTF-8\)/\1/; s/^# *\(he_IL.UTF-8\)/\1/' /etc/locale.gen && locale-gen \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY debian-chromium.sh /tmp/debian-chromium.sh
+RUN if [ "$CHROMIUM_SOURCE" = "debian" ]; then sh /tmp/debian-chromium.sh; fi && rm -f /tmp/debian-chromium.sh
+
+# Non-root user that owns the persistent home volume (FR-PC-03, FR-PC-04).
+RUN (userdel -r ubuntu 2>/dev/null || true) \
+ && useradd -m -u 1000 -s /bin/bash bot \
+ && mkdir -p /home/bot/workspace && chown -R bot:bot /home/bot
+
+COPY chromium-policy.json /etc/chromium/policies/managed/advence.json
+COPY start.sh /usr/local/bin/bot-computer-start
+COPY xstartup.sh /usr/local/bin/bot-computer-xstartup
+COPY install-engines.sh /usr/local/bin/bot-computer-install-engines
+RUN chmod 0755 /usr/local/bin/bot-computer-*
+
+ENV LANG=en_US.UTF-8 DISPLAY=:1 HOME=/home/bot
+USER bot
+WORKDIR /home/bot
+VOLUME ["/home/bot"]
+# 6080: noVNC/websockify. Published to host loopback only by the server (NFR-SEC-08).
+EXPOSE 6080
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/bot-computer-start"]
