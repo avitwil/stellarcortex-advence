@@ -150,6 +150,7 @@ export const he: Strings = {
     unknown_model_source: 'מקור המודל הזה לא קיים.', https_required: 'הכתובת חייבת להתחיל ב-https://.',
     base_url_required: 'הזינו את כתובת השרת.', invalid_base_url: 'הכתובת חייבת להתחיל ב-http:// או https://.',
     base_url_not_allowed: 'לסוג הזה יש כתובת קבועה.', api_key_required: 'הזינו את מפתח ה-API.', owner_only: 'רק בעל השרת יכול לעשות זאת.',
+    no_distributor: 'התקינו קודם את אפליקציית ntfy בטלפון הזה ונסו שוב.', push_timeout: 'אפליקציית הדחיפה לא ענתה. פתחו אותה פעם אחת ונסו שוב.', push_failed: 'אפליקציית הדחיפה לא הצליחה לרשום את המכשיר.',
     push_not_configured: 'בעל השרת עדיין לא הגדיר שרת דחיפה.', endpoint_not_on_push_server: 'אפליקציית הדחיפה במכשיר משתמשת בשרת אחר.',
     invalid_push_server: 'הזינו כתובת תקינה של שרת דחיפה.', invalid_request: 'חלק מהשדות לא תקינים.', cannot_delete_primary: 'אי אפשר למחוק את ראש המטה.',
     reply: {

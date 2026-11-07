@@ -148,6 +148,7 @@ export const en = {
     unknown_model_source: 'That model source does not exist.', https_required: 'The address must start with https://.',
     base_url_required: 'Enter the server address.', invalid_base_url: 'The address must start with http:// or https://.',
     base_url_not_allowed: 'This type has a fixed address.', api_key_required: 'Enter the API key.', owner_only: 'Only the server owner can do this.',
+    no_distributor: 'Install the ntfy app on this phone first, then try again.', push_timeout: 'The push app did not answer. Open it once, then try again.', push_failed: 'The push app could not register this device.',
     push_not_configured: 'The server owner has not set up a push server yet.', endpoint_not_on_push_server: 'This device’s push app uses a different server.',
     invalid_push_server: 'Enter a valid push server address.', invalid_request: 'Some fields are not valid.', cannot_delete_primary: 'The chief of staff cannot be deleted.',
     reply: {

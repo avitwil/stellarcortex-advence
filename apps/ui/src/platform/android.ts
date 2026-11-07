@@ -1,5 +1,5 @@
 // Android bridge: Capacitor plugins implemented in apps/android (PinnedHttp, SecureStore,
-// GoogleSignIn). All server traffic goes through OkHttp with the pinned key (DL-016).
+// GoogleSignIn, Push). All server traffic goes through OkHttp with the pinned key (DL-016).
 import type { PlatformBridge, SocketHandlers } from './types';
 import { browserBridge } from './browser';
 
@@ -62,5 +62,9 @@ export function androidBridge(): PlatformBridge {
       return { idToken: r.idToken };
     },
     canScanQr: true,
+    async registerPush(pushServer) {
+      const r = await P.Push!.register({ pushServer });
+      return r.endpoint ?? null;
+    },
   };
 }

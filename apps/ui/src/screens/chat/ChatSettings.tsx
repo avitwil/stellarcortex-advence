@@ -18,7 +18,11 @@ const OWNER_ONLY: ModelSourceKind[] = ['local', 'claude-subscription', 'chatgpt-
 
 function useErr() {
   const { t } = useTranslation();
-  return (e: unknown) => (e instanceof ApiError ? t(`errors.${e.code}`, { defaultValue: t('common.error') }) : t('common.error'));
+  // ApiError from the server, or a native plugin error (Capacitor sets a string `code`).
+  return (e: unknown) => {
+    const code = e instanceof ApiError ? e.code : typeof (e as { code?: unknown })?.code === 'string' ? (e as { code: string }).code : null;
+    return code ? t(`errors.${code}`, { defaultValue: t('common.error') }) : t('common.error');
+  };
 }
 
 export function ModelsSection() {

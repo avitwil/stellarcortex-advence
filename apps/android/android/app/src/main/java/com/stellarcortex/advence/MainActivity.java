@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PinnedHttpPlugin.class);
         registerPlugin(SecureStorePlugin.class);
         registerPlugin(GoogleSignInPlugin.class);
+        registerPlugin(PushPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

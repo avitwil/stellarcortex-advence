@@ -4,4 +4,6 @@
     <string name="title_activity_main">StellarCortex Advence</string>
     <string name="package_name">com.stellarcortex.advence</string>
     <string name="custom_url_scheme">com.stellarcortex.advence</string>
+    <string name="push_channel">Bot replies</string>
+    <string name="push_new_reply">A Bot replied. Open to read.</string>
 </resources>
