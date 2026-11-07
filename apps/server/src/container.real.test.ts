@@ -123,7 +123,7 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
     const flags = (await sh('grep -rlI -- "--no-sandbox" /usr/bin/chromium* /etc/chromium* /usr/lib/chromium* 2>/dev/null; true')).out;
     expect(flags).toBe('');
     const r = await sh('timeout 90 chromium --headless=new --no-first-run --disable-gpu --virtual-time-budget=5000 --dump-dom chrome://sandbox 2>/tmp/chromium.err', 120_000);
-    const why = r.out ? '' : (await sh('tail -n 25 /tmp/chromium.err; unshare -Ur true && echo userns-ok || echo userns-denied; cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null; cat /proc/self/attr/current 2>/dev/null')).out;
+    const why = r.out ? '' : (await sh('grep -v crashpad /tmp/chromium.err | head -n 30; unshare -Ur true && echo userns-ok || echo userns-denied; unshare -Urpnf true && echo pidnet-ok || echo pidnet-denied; cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null; cat /proc/self/attr/current 2>/dev/null; grep -E "Seccomp|NoNewPrivs|CapBnd" /proc/self/status')).out;
     expect(r.out, why).toMatch(/You are adequately sandboxed/);
     expect(r.out).not.toMatch(/not adequately sandboxed/i);
   }, 150_000);
