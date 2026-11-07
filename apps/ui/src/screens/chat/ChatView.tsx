@@ -2,7 +2,7 @@
 // per-conversation drafts and streaming replies.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MAX_ATTACHMENT_BYTES, type Attachment, type AttachmentData, type Bot, type Message } from '@advence/protocol';
+import { MAX_ATTACHMENT_BYTES, type Attachment, type AttachmentData, type Bot, type EngineStep, type Message } from '@advence/protocol';
 import { useChat } from '../../state/chat';
 import { useStore } from '../../state/store';
 import { Icon } from '../../ui/Icon';
@@ -10,6 +10,7 @@ import { Markdown } from './Markdown';
 import { BotAvatar } from './BotAvatar';
 import { BotProfile } from './BotProfile';
 import { NewGroup } from './NewGroup';
+import { ComputerPanel } from './ComputerView';
 import type { ShellProps } from '../shell-registry';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '🙏', '👀'];
@@ -23,6 +24,7 @@ export function ChatView({ view, setView }: ShellProps) {
   const [thread, setThread] = useState<string | null>(null);
   const [profile, setProfile] = useState<Bot | null>(null);
   const [editGroup, setEditGroup] = useState(false);
+  const [computer, setComputer] = useState<Bot | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -80,6 +82,7 @@ export function ChatView({ view, setView }: ShellProps) {
           {!direct && members.map((m) => (
             <button key={m.id} className="btn icon ghost" onClick={() => setProfile(m)} aria-label={t('bot.openProfile', { name: m.name })}><BotAvatar bot={m} /></button>
           ))}
+          {direct && <button className="btn icon ghost" onClick={() => setComputer(direct)} aria-label={t('computer.open', { name: direct.name })} title={t('computer.open', { name: direct.name })}><Icon name="computer" /></button>}
         </header>
         <div className="messages" ref={scroller} onScroll={(e) => {
           const el = e.currentTarget;
@@ -96,7 +99,8 @@ export function ChatView({ view, setView }: ShellProps) {
         <Composer convId={convId} parentId={null} members={conv.kind === 'group' ? members : []} placeholderName={direct?.name ?? conv.title} onSent={() => (atBottom.current = true)} />
       </div>
       {thread && <ThreadPanel convId={convId} parentId={thread} members={conv.kind === 'group' ? members : []} onClose={() => setThread(null)} onBot={(b) => setProfile(b)} />}
-      {profile && <BotProfile bot={bots.find((b) => b.id === profile.id) ?? profile} onClose={() => setProfile(null)} onLibrary={() => { setProfile(null); setView({ kind: 'library', id: profile.id }); }} />}
+      {profile && <BotProfile bot={bots.find((b) => b.id === profile.id) ?? profile} onClose={() => setProfile(null)} onLibrary={() => { setProfile(null); setView({ kind: 'library', id: profile.id }); }} onComputer={() => { setComputer(profile); setProfile(null); }} />}
+      {computer && <ComputerPanel bot={computer} onClose={() => setComputer(null)} />}
       {editGroup && conv.kind === 'group' && <NewGroup conv={conv} onClose={(id) => { setEditGroup(false); if (!id) setView({ kind: 'home' }); }} />}
     </div>
   );
@@ -152,6 +156,7 @@ function MessageItem({ m, onThread, onBot, inThread }: { m: Message; onThread?: 
         {!mine && <div className="author">{name}</div>}
         <div className="bubble">
           {m.text && (mine ? <div className="plain" dir="auto">{m.text}</div> : <Markdown text={m.text} />)}
+          {m.steps && m.steps.length > 0 && <EngineSteps steps={m.steps} />}
           {m.status === 'streaming' && !m.text && <span className="typing" role="status" aria-label={t('chat.thinking', { name })}><i /><i /><i /></span>}
           {m.attachments.length > 0 && <Attachments items={m.attachments} />}
           {m.status === 'error' && (
@@ -184,6 +189,25 @@ function MessageItem({ m, onThread, onBot, inThread }: { m: Message; onThread?: 
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Coding engine activity (FR-CODE-04): commands with their output, and file diffs. */
+export function EngineSteps({ steps }: { steps: EngineStep[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="steps" aria-label={t('steps.label')}>
+      {steps.map((s) => (
+        <details key={s.id} className={`step ${s.status}`}>
+          <summary>
+            <Icon name={s.kind === 'command' ? 'terminal' : s.kind === 'diff' ? 'file' : s.kind === 'plan' ? 'routine' : 'code'} size={14} />
+            <span className="step-title">{s.title}</span>
+            <span className="faint">{s.status === 'running' ? t('steps.running') : s.kind === 'command' && s.exitCode != null ? t('steps.exit', { code: s.exitCode }) : s.status === 'failed' ? t('steps.failed') : ''}</span>
+          </summary>
+          {s.body && <pre>{s.kind === 'diff' ? s.body.split('\n').map((l, i) => <span key={i} className={l.startsWith('+') && !l.startsWith('+++') ? 'add' : l.startsWith('-') && !l.startsWith('---') ? 'del' : undefined}>{l}{'\n'}</span>) : s.body}</pre>}
+        </details>
+      ))}
     </div>
   );
 }

@@ -8,13 +8,15 @@ import { Icon } from '../../ui/Icon';
 import { Modal } from './Modal';
 import { BotAvatar } from './BotAvatar';
 import { BotEditor } from './BotEditor';
+import { computerLabel } from './ComputerView';
 
-export function BotProfile({ bot, onClose, onLibrary }: { bot: Bot; onClose(): void; onLibrary(): void }) {
+export function BotProfile({ bot, onClose, onLibrary, onComputer }: { bot: Bot; onClose(): void; onLibrary(): void; onComputer(): void }) {
   const { t } = useTranslation();
-  const { client, sources, loadSources, refresh, libraryTick } = useChat();
+  const { client, sources, loadSources, refresh, libraryTick, computers, loadComputer } = useChat();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [edit, setEdit] = useState(false);
   useEffect(() => void loadSources(), [loadSources]);
+  useEffect(() => void loadComputer(bot.id), [bot.id, loadComputer]);
   useEffect(() => {
     void client?.call<LibraryItem[]>('GET', `/v1/library?botId=${bot.id}&limit=5`).then(setItems, () => undefined);
   }, [client, bot.id, libraryTick]);
@@ -51,7 +53,8 @@ export function BotProfile({ bot, onClose, onLibrary }: { bot: Bot; onClose(): v
           </div>
           <div className="list-row">
             <Icon name="computer" />
-            <div className="spacer"><div>{t('bot.computer')}</div><div className="faint" style={{ fontSize: 13 }}>{t('bot.computerStopped')}</div></div>
+            <div className="spacer"><div>{t('bot.computer')}</div><div className="faint" style={{ fontSize: 13 }}>{computerLabel(t, computers[bot.id])}</div></div>
+            <button className="btn small" onClick={onComputer}>{t('common.open')}</button>
           </div>
           <div className="list-row">
             <Icon name="routine" />

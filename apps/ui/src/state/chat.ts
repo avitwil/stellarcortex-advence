@@ -2,7 +2,8 @@
 // current from the event stream.
 import { create } from 'zustand';
 import {
-  CHAT_EVENTS, type Bot, type Conversation, type LibraryItem, type Message, type ModelSource,
+  CHAT_EVENTS, COMPUTER_EVENTS, type Bot, type ComputerState, type Conversation, type EngineStep, type LibraryItem, type Message,
+  type ModelSource,
 } from '@advence/protocol';
 import type { ApiClient } from '../api/client';
 import { platform } from '../platform';
@@ -19,6 +20,11 @@ interface ChatState {
   activeConv: string | null;
   muted: boolean;
   libraryTick: number;
+  /** Bot computer state per Bot (FR-PC-06), kept current from computer.updated events */
+  computers: Record<string, ComputerState>;
+  /** bumped when the computer image or runtime status changes, so settings reload */
+  computerTick: number;
+  loadComputer(botId: string): Promise<ComputerState | null>;
   attach(client: ApiClient | null): () => void;
   refresh(): Promise<void>;
   loadSources(): Promise<void>;
@@ -53,9 +59,23 @@ export const useChat = create<ChatState>((set, get) => ({
   activeConv: null,
   muted: false,
   libraryTick: 0,
+  computers: {},
+  computerTick: 0,
+
+  async loadComputer(botId) {
+    const c = get().client;
+    if (!c) return null;
+    try {
+      const st = await c.call<ComputerState>('GET', `/v1/bots/${botId}/computer`);
+      set((s) => ({ computers: { ...s.computers, [botId]: st } }));
+      return st;
+    } catch {
+      return null;
+    }
+  },
 
   attach(client) {
-    set({ client, bots: [], conversations: [], messages: {}, threads: {}, activeConv: null });
+    set({ client, bots: [], conversations: [], messages: {}, threads: {}, activeConv: null, computers: {} });
     if (!client) return () => undefined;
     void get().refresh();
     const sock = client.openSocket();
@@ -156,16 +176,19 @@ function place(m: Message): void {
   });
 }
 
-function appendDelta(id: string, convId: string, text: string): void {
+function patchMessage(id: string, convId: string, fn: (m: Message) => Message): void {
   useChat.setState((s) => {
-    const patch = (list: Message[] | undefined) => (list ? list.map((m) => (m.id === id ? { ...m, text: m.text + text } : m)) : list);
+    const patch = (list: Message[] | undefined) => (list ? list.map((m) => (m.id === id ? fn(m) : m)) : list);
     const list = s.messages[convId];
-    const inTop = list?.some((m) => m.id === id);
-    if (inTop) return { messages: { ...s.messages, [convId]: patch(list)! } };
+    if (list?.some((m) => m.id === id)) return { messages: { ...s.messages, [convId]: patch(list)! } };
     const threads = { ...s.threads };
     for (const k of Object.keys(threads)) if (threads[k]!.some((m) => m.id === id)) threads[k] = patch(threads[k])!;
     return { threads };
   });
+}
+
+function appendDelta(id: string, convId: string, text: string): void {
+  patchMessage(id, convId, (m) => ({ ...m, text: m.text + text }));
 }
 
 function onEvent(event: string, data: unknown): void {
@@ -198,6 +221,18 @@ function onEvent(event: string, data: unknown): void {
     case CHAT_EVENTS.botUpdated:
       void s.refresh();
       break;
+    case COMPUTER_EVENTS.messageSteps: {
+      // Engine commands and diffs while the coding engine works (FR-CODE-04).
+      const d = data as { id: string; conversationId: string; steps: EngineStep[] };
+      patchMessage(d.id, d.conversationId, (m) => ({ ...m, steps: d.steps }));
+      break;
+    }
+    case COMPUTER_EVENTS.computerUpdated: {
+      const st = data as ComputerState | { image: unknown };
+      if ('botId' in st) useChat.setState((x) => ({ computers: { ...x.computers, [st.botId]: st } }));
+      useChat.setState((x) => ({ computerTick: x.computerTick + 1 }));
+      break;
+    }
     case CHAT_EVENTS.libraryAdded:
       useChat.setState((st) => ({ libraryTick: st.libraryTick + 1 }));
       void (data as LibraryItem);

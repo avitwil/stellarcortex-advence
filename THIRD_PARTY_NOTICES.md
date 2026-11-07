@@ -47,6 +47,7 @@ and is listed in the generated section at the end of this file.
 | @noble/ciphers | 2.4.0 | MIT |
 | @noble/curves | 2.4.0 | MIT |
 | @noble/hashes | 2.4.0 | MIT |
+| @novnc/novnc | 1.7.0 | MPL-2.0 |
 | @opentelemetry/api | 1.10.0 | Apache-2.0 |
 | @peculiar/asn1-cms | 2.11.1 | MIT |
 | @peculiar/asn1-csr | 2.11.1 | MIT |

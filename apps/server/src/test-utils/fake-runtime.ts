@@ -7,7 +7,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import type { ContainerInfo, ContainerRuntime, ContainerSpec, ExecOptions, RuntimeInfo } from '../computer/runtime.js';
 import type { ProcessRun } from '../models/host.js';
 
@@ -27,6 +27,10 @@ export class FakeRuntime implements ContainerRuntime {
   inputLog = path.join(this.root, 'input.log');
   vncPort = 0;
   vncFrames: Buffer[] = [];
+  /** Speak a minimal RFB 3.8 server instead of echoing, for the browser live view test. */
+  rfb = false;
+  rfbEvents: { type: 'key' | 'pointer'; data: number[] }[] = [];
+  rfbClients = 0;
   private http!: http.Server;
 
   static async start(): Promise<FakeRuntime> {
@@ -37,10 +41,13 @@ export class FakeRuntime implements ContainerRuntime {
     // Fake websockify: echoes RFB bytes back, prefixed with "echo:".
     r.http = http.createServer();
     const wss = new WebSocketServer({ server: r.http });
-    wss.on('connection', (ws) => ws.on('message', (m: Buffer) => {
-      r.vncFrames.push(Buffer.from(m));
-      ws.send(Buffer.concat([Buffer.from('echo:'), Buffer.from(m)]));
-    }));
+    wss.on('connection', (ws) => {
+      if (r.rfb) return fakeRfb(ws, r);
+      ws.on('message', (m: Buffer) => {
+        r.vncFrames.push(Buffer.from(m));
+        ws.send(Buffer.concat([Buffer.from('echo:'), Buffer.from(m)]));
+      });
+    });
     await new Promise<void>((res) => r.http.listen(0, '127.0.0.1', () => res()));
     r.vncPort = (r.http.address() as { port: number }).port;
     return r;
@@ -108,4 +115,69 @@ export class FakeRuntime implements ContainerRuntime {
     return { lines: readline.createInterface({ input: p.stdout }), done };
   }
   async diskUsage() { return this.disk; }
+}
+
+/**
+ * Minimal RFB 3.8 server (security type None, one raw 64x48 frame) that records the key and
+ * pointer events a viewer sends, so tests can tell view-only from take-over (FR-UI-05).
+ */
+function fakeRfb(ws: WebSocket, r: FakeRuntime): void {
+  const W = 64;
+  const H = 48;
+  r.rfbClients++;
+  let buf = Buffer.alloc(0);
+  let stage: 'version' | 'security' | 'init' | 'normal' = 'version';
+  let sentFrame = false;
+  ws.send(Buffer.from('RFB 003.008\n'));
+  ws.on('message', (m: Buffer) => {
+    buf = Buffer.concat([buf, Buffer.from(m)]);
+    for (;;) {
+      if (stage === 'version') {
+        if (buf.length < 12) return;
+        buf = buf.subarray(12);
+        stage = 'security';
+        ws.send(Buffer.from([1, 1])); // one security type: None
+      } else if (stage === 'security') {
+        if (buf.length < 1) return;
+        buf = buf.subarray(1);
+        stage = 'init';
+        ws.send(Buffer.from([0, 0, 0, 0])); // SecurityResult OK
+      } else if (stage === 'init') {
+        if (buf.length < 1) return;
+        buf = buf.subarray(1);
+        stage = 'normal';
+        const name = Buffer.from('bot');
+        const init = Buffer.alloc(24 + name.length);
+        init.writeUInt16BE(W, 0);
+        init.writeUInt16BE(H, 2);
+        Buffer.from([32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0]).copy(init, 4);
+        init.writeUInt32BE(name.length, 20);
+        name.copy(init, 24);
+        ws.send(init);
+      } else {
+        if (buf.length < 1) return;
+        const t = buf[0]!;
+        const need = t === 0 ? 20 : t === 2 ? (buf.length >= 4 ? 4 + 4 * buf.readUInt16BE(2) : Infinity) : t === 3 ? 10 : t === 4 ? 8 : t === 5 ? 6 : t === 6 ? (buf.length >= 8 ? 8 + buf.readUInt32BE(4) : Infinity) : -1;
+        if (need < 0) {
+          buf = Buffer.alloc(0);
+          return;
+        }
+        if (buf.length < need) return;
+        const msg = buf.subarray(0, need);
+        buf = buf.subarray(need);
+        if (t === 4) r.rfbEvents.push({ type: 'key', data: [...msg] });
+        if (t === 5) r.rfbEvents.push({ type: 'pointer', data: [...msg] });
+        if (t === 3 && !sentFrame) {
+          sentFrame = true;
+          const head = Buffer.alloc(16);
+          head.writeUInt8(0, 0);
+          head.writeUInt16BE(1, 2);
+          head.writeUInt16BE(W, 8);
+          head.writeUInt16BE(H, 10);
+          head.writeInt32BE(0, 12); // Raw
+          ws.send(Buffer.concat([head, Buffer.alloc(W * H * 4, 0x80)]));
+        }
+      }
+    }
+  });
 }

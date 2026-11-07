@@ -16,7 +16,7 @@ import { Modal } from './Modal';
 const KINDS: ModelSourceKind[] = ['anthropic', 'openai', 'openai-compatible', 'local', 'claude-subscription', 'chatgpt-subscription'];
 const OWNER_ONLY: ModelSourceKind[] = ['local', 'claude-subscription', 'chatgpt-subscription'];
 
-function useErr() {
+export function useErr() {
   const { t } = useTranslation();
   // ApiError from the server, or a native plugin error (Capacitor sets a string `code`).
   return (e: unknown) => {

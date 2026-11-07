@@ -7,7 +7,8 @@ export function sriPlugin(): Plugin {
     name: 'advence-sri',
     apply: 'build',
     enforce: 'post',
-    generateBundle(_opts, bundle) {
+    // Last, after Vite rewrites chunks for lazy imports, so the hashes match the bytes served.
+    generateBundle: { order: 'post', handler(_opts, bundle) {
       const html = bundle['index.html'];
       if (!html || html.type !== 'asset') return;
       let src = String(html.source);
@@ -21,6 +22,6 @@ export function sriPlugin(): Plugin {
         return `<${tag}${pre}${attr}="./${file}" integrity="sha384-${hash}"${co}${post}>`;
       });
       html.source = src;
-    },
+    } },
   };
 }

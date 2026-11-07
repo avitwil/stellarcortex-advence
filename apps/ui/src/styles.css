@@ -236,3 +236,20 @@ textarea.input { resize: vertical; }
   .chat.thread-open .chat-main { display: none; }
   .att-image { max-width: 100%; }
 }
+/* P3: Bot computer live view (FR-UI-05) and engine steps (FR-CODE-04) */
+.modal.full { max-width: min(1280px, 100%); height: 90vh; display: flex; flex-direction: column; }
+.vnc-wrap { flex: 1; min-height: 240px; background: #000; border-radius: var(--radius-sm); overflow: hidden; position: relative; }
+.vnc-wrap.interactive { outline: 2px solid var(--accent); }
+.vnc-screen { position: absolute; inset: 0; }
+.vnc-overlay { position: absolute; inset: 0; display: grid; place-items: center; color: #ddd; text-align: center; padding: 16px; }
+.progress { height: 6px; border-radius: 3px; background: var(--bg-elev-2); overflow: hidden; width: 100%; max-width: 320px; }
+.progress > i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.steps { display: flex; flex-direction: column; gap: 4px; margin-block-start: 8px; }
+.step { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); font-size: 13px; }
+.step > summary { cursor: pointer; padding: 6px 10px; display: flex; gap: 8px; align-items: center; list-style: none; }
+.step > summary::-webkit-details-marker { display: none; }
+.step .step-title { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: left; flex: 1; }
+.step pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--border); max-height: 320px; overflow: auto; font-family: var(--mono); font-size: 12px; direction: ltr; text-align: left; white-space: pre; }
+.step pre .add { color: var(--ok); }
+.step pre .del { color: var(--danger, #e5484d); }
+.step.failed > summary { color: var(--warn); }

@@ -8,5 +8,7 @@ export default defineConfig({
   base: './',
   plugins: [react(), sriPlugin()],
   resolve: { conditions: ['development'] },
-  build: { outDir: 'dist', sourcemap: false, target: 'es2020', assetsInlineLimit: 0, modulePreload: { polyfill: false } },
+  build: { outDir: 'dist', sourcemap: false, target: 'es2022', assetsInlineLimit: 0, modulePreload: { polyfill: false },
+    // One script, so SRI in index.html covers all code (the live view's noVNC is imported lazily).
+    rollupOptions: { output: { inlineDynamicImports: true } } },
 });

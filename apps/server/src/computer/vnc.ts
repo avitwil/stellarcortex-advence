@@ -11,6 +11,7 @@ import type { ComputerManager } from './manager.js';
 const AUTH_TIMEOUT_MS = 5000;
 const SESSION_CHECK_MS = 15_000;
 const MAX_FRAME = 4 * 1024 * 1024;
+const CHUNK = 512 * 1024;
 
 export class VncProxy {
   private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
@@ -65,7 +66,10 @@ export class VncProxy {
           client.send(JSON.stringify({ type: 'ready' }));
           for (const b of pending.splice(0)) upstream!.send(b);
         });
-        upstream.on('message', (m: Buffer) => client.readyState === client.OPEN && client.send(Buffer.from(m).toString('base64')));
+        // RFB is a byte stream, so large reads are split to stay under every client's frame limit.
+        upstream.on('message', (m: Buffer) => {
+          for (let i = 0; i < m.length && client.readyState === client.OPEN; i += CHUNK) client.send(m.subarray(i, i + CHUNK).toString('base64'));
+        });
         upstream.on('close', () => client.close(1000, 'computer closed'));
         upstream.on('error', () => client.close(1011, 'computer unreachable'));
         client.on('message', (m, bin) => {
