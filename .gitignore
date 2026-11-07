@@ -19,3 +19,4 @@ apps/android/android/.gradle/
 apps/android/android/local.properties
 data/
 .tmp/
+.tmp/

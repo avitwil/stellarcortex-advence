@@ -136,6 +136,12 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
     return login(ctx, req.auth!.deviceId, await g.verifyIdToken(tokens.idToken));
   });
 
+  route('GET', '/v1/auth/google/client', 'device', () => {
+    const id = getMeta(ctx.db, 'google.clientId');
+    if (!id) throw new HttpError(409, 'google_not_configured');
+    return { clientId: id };
+  });
+
   route('POST', '/v1/auth/google/idtoken', 'device', async (req) => {
     const g = ctx.google();
     if (!g) throw new HttpError(409, 'google_not_configured');
