@@ -90,9 +90,26 @@ app.whenReady().then(() => {
     if (pins.set(String(host), String(pin))) pnet.closeAll();
   });
   ipcMain.handle('http', (_e, req: { url: string; method: string; headers: Record<string, string>; body?: string }) => pnet.request(req));
-  ipcMain.handle('wsOpen', (e, id: string, url: string) => pnet.wsOpen(String(id), String(url), (ev) => !e.sender.isDestroyed() && e.sender.send('wsEvent', ev)));
-  ipcMain.on('wsSend', (_e, id: string, data: string) => pnet.wsSend(String(id), String(data)));
-  ipcMain.on('wsClose', (_e, id: string) => pnet.wsClose(String(id)));
+  // Socket ids are scoped per renderer; a reload or crash closes that renderer's sockets.
+  const sid = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent, id: string) => `${e.sender.id}:${String(id)}`;
+  const watched = new Set<number>();
+  ipcMain.handle('wsOpen', (e, id: string, url: string) => {
+    const wc = e.sender;
+    if (!watched.has(wc.id)) {
+      watched.add(wc.id);
+      const prefix = `${wc.id}:`;
+      const drop = () => pnet.closeWhere(prefix);
+      wc.on('did-start-navigation', (d) => d.isMainFrame && !d.isSameDocument && drop());
+      wc.on('render-process-gone', drop);
+      wc.once('destroyed', () => {
+        drop();
+        watched.delete(wc.id);
+      });
+    }
+    pnet.wsOpen(sid(e, id), String(url), (ev) => !wc.isDestroyed() && wc.send('wsEvent', { ...ev, id: String(id) }));
+  });
+  ipcMain.on('wsSend', (e, id: string, data: string) => pnet.wsSend(sid(e, id), String(data)));
+  ipcMain.on('wsClose', (e, id: string) => pnet.wsClose(sid(e, id)));
   // Device keys are encrypted by the OS keystore (DPAPI, Keychain, libsecret/kwallet).
   // On a Linux desktop with no keyring the file falls back to owner-only permissions (DL-018).
   ipcMain.handle('loadSecret', async (_e, name: string) => {
@@ -118,10 +135,14 @@ app.whenReady().then(() => {
     fs.rmSync(f, { force: true });
     fs.rmSync(f + '.plain', { force: true });
   });
+  let pendingOAuth: ReturnType<typeof waitForOAuthCode> | null = null;
   ipcMain.handle('oauthLoopback', async (_e, authUrl: string) => {
     const u = new URL(String(authUrl));
     if (u.protocol !== 'https:') throw new Error('auth url must be https');
+    // A new sign-in replaces an unfinished one, which would otherwise hold the port.
+    pendingOAuth?.cancel();
     const w = waitForOAuthCode();
+    pendingOAuth = w;
     await w.ready;
     // If no browser can be opened, the receiver still times out after 5 minutes.
     shell.openExternal(u.toString()).catch(() => undefined);

@@ -195,6 +195,51 @@ describe('NFR-SEC-02/03 signatures, sessions and revocation', () => {
     expect(after.status).toBe(403);
     expect(after.json.error).toBe('device_revoked');
   });
+  it('NFR-SEC-03 sign-out lasts: refresh needs Google login again and the open WebSocket closes', async () => {
+    const c = await pairedClient(env, { approveAs: owner });
+    c.token = (await c.request('POST', '/v1/auth/google/idtoken', { idToken: await env.google.idToken({ sub: 'owner-sub', email: 'owner@example.com' }) })).json.token;
+    const s = await c.ws();
+    s.auth();
+    await s.next((f) => f.type === 'ready');
+    expect((await c.request('POST', '/v1/auth/logout', {})).status).toBe(200);
+    expect((await s.next((f) => f.type === '__closed')).code).toBe(4004);
+    const rf = await c.request('POST', '/v1/auth/refresh', {}, { token: '' });
+    expect(rf.status).toBe(401);
+    expect(rf.json.error).toBe('login_required');
+    // Logging in again works on the same device.
+    const again = await c.request('POST', '/v1/auth/google/idtoken', { idToken: await env.google.idToken({ sub: 'owner-sub', email: 'owner@example.com' }) });
+    expect(again.status).toBe(200);
+  });
+  it('NFR-SEC-03 no events reach a socket whose session expired', async () => {
+    const c = await pairedClient(env, { approveAs: owner });
+    const r = await c.request('POST', '/v1/auth/google/idtoken', { idToken: await env.google.idToken({ sub: 'owner-sub', email: 'owner@example.com' }) });
+    c.token = r.json.token;
+    const s = await c.ws();
+    s.auth();
+    await s.next((f) => f.type === 'ready');
+    env.server.ctx.bus.publish(r.json.user.id, 'test.before', 1);
+    expect((await s.next((f) => f.type === 'event')).event).toBe('test.before');
+    env.server.ctx.db.prepare('UPDATE sessions SET expires_at = ? WHERE device_id = ?').run(Date.now() - 1, c.deviceId);
+    env.server.ctx.bus.publish(r.json.user.id, 'test.after', 2);
+    await expect(s.next((f) => f.type === 'event', 400)).rejects.toThrow('timeout');
+    s.close();
+  });
+  it('FR-GGL-03 removing a member who signed in on a device revokes the device and frees the account', async () => {
+    expect((await owner.request('POST', '/v1/allowlist', { email: 'gone@example.com' })).status).toBe(200);
+    const m = await pairedClient(env, { approveAs: owner });
+    const r = await m.request('POST', '/v1/auth/google/idtoken', { idToken: await env.google.idToken({ sub: 'gone-sub', email: 'gone@example.com' }) });
+    expect(r.status).toBe(200);
+    m.token = r.json.token;
+    const s = await m.ws();
+    s.auth();
+    await s.next((f) => f.type === 'ready');
+    const del = await owner.request('DELETE', `/v1/allowlist/${r.json.user.id}`);
+    expect(del.status).toBe(200);
+    expect((await s.next((f) => f.type === '__closed')).code).toBe(4003);
+    expect((await m.request('GET', '/v1/me')).json.error).toBe('device_revoked');
+    const list = await owner.request('GET', '/v1/allowlist');
+    expect(list.json.entries.some((u: { email: string }) => u.email === 'gone@example.com')).toBe(false);
+  });
   it('owner-approved pairing via a device works end to end', async () => {
     const c = await pairedClient(env, { approveAs: owner });
     expect(c.deviceId).toMatch(/^dev_/);

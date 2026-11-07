@@ -152,7 +152,7 @@ export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void 
   route('POST', '/v1/auth/refresh', 'device', (req) => ctx.identity.refreshSession(req.auth!.deviceId));
 
   route('POST', '/v1/auth/logout', 'session', (req) => {
-    ctx.identity.endSession(req.auth!.token!);
+    ctx.identity.logout(req.auth!.deviceId);
     return { ok: true };
   });
 

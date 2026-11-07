@@ -13,6 +13,8 @@ export class ReconnectingSocket {
   private attempt = 0;
   private stopped = false;
   private seq = 0;
+  /** Incremented whenever a connection is abandoned, so its late callbacks are ignored. */
+  private gen = 0;
   private pending = new Map<string, { resolve(v: unknown): void; reject(e: Error): void }>();
   private listeners = new Set<(event: string, data: unknown) => void>();
   private stateListeners = new Set<(s: SocketState) => void>();
@@ -41,9 +43,16 @@ export class ReconnectingSocket {
   /** A stream that has been silent for HEARTBEAT_DEAD_MS is dead: reconnect. */
   check(): void {
     if (this.state === 'open' && this.now() - this.lastFrame > HEARTBEAT_DEAD_MS) {
-      this.conn?.close();
+      this.abandon();
       this.reconnect();
     }
+  }
+
+  private abandon(): void {
+    this.gen++;
+    const c = this.conn;
+    this.conn = null;
+    c?.close();
   }
 
   private async connect(): Promise<void> {
@@ -54,18 +63,22 @@ export class ReconnectingSocket {
     } catch {
       return this.reconnect();
     }
+    if (this.stopped) return;
     const url = `wss://${this.api.server.host}/v1/ws`;
+    const my = ++this.gen;
     this.conn = this.bridge.socket(url, {
       onOpen: () => {
+        if (my !== this.gen) return;
         this.lastFrame = this.now();
         void this.sendAuth();
       },
-      onMessage: (d) => this.onMessage(d),
+      onMessage: (d) => my === this.gen && this.onMessage(d),
       onClose: (code) => {
+        if (my !== this.gen) return;
         this.conn = null;
-        if (code === 4003) {
+        if (code === 4003 || code === 4004) {
           this.stop();
-          this.listeners.forEach((f) => f('device.revoked', null));
+          this.listeners.forEach((f) => f(code === 4003 ? 'device.revoked' : 'session.ended', null));
           return;
         }
         this.reconnect();
@@ -140,7 +153,7 @@ export class ReconnectingSocket {
   stop(): void {
     this.stopped = true;
     if (this.watchdog) clearInterval(this.watchdog);
-    this.conn?.close();
+    this.abandon();
     this.setState('stopped');
   }
 }

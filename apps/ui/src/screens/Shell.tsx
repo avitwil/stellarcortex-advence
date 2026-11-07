@@ -21,7 +21,7 @@ export function Shell() {
     const s = client.openSocket();
     const off = s.onState(setSock);
     const offEv = s.onEvent((ev) => {
-      if (ev === 'device.revoked') void useStore.getState().resolvePhase();
+      if (ev === 'device.revoked' || ev === 'session.ended') void useStore.getState().resolvePhase();
     });
     return () => {
       off();

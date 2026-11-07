@@ -4,13 +4,19 @@ import type { PlatformBridge, HttpReq, SocketHandlers } from './types';
 
 const DB_NAME = 'advence-keys';
 
+// One shared connection per page.
+let dbPromise: Promise<IDBDatabase> | null = null;
 function idb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
     const r = indexedDB.open(DB_NAME, 1);
     r.onupgradeneeded = () => r.result.createObjectStore('kv');
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
+  }).catch((e) => {
+    dbPromise = null;
+    throw e;
   });
+  return dbPromise;
 }
 async function idbGet<T>(key: string): Promise<T | undefined> {
   const db = await idb();
@@ -27,23 +33,45 @@ async function idbSet(key: string, value: unknown): Promise<void> {
     tx.objectStore('kv').put(value, key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 async function idbDel(key: string): Promise<void> {
   const db = await idb();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const tx = db.transaction('kv', 'readwrite');
     tx.objectStore('kv').delete(key);
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
-async function wrapKey(): Promise<CryptoKey> {
-  let k = await idbGet<CryptoKey>('__wrap');
-  if (!k) {
-    k = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-    await idbSet('__wrap', k);
-  }
-  return k;
+/** Gets or creates the wrap key in one transaction, so concurrent first calls agree on it. */
+let wrapPromise: Promise<CryptoKey> | null = null;
+function wrapKey(): Promise<CryptoKey> {
+  wrapPromise ??= (async () => {
+    const existing = await idbGet<CryptoKey>('__wrap');
+    if (existing) return existing;
+    const fresh = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    const db = await idb();
+    return new Promise<CryptoKey>((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const store = tx.objectStore('kv');
+      let result: CryptoKey = fresh;
+      const g = store.get('__wrap');
+      g.onsuccess = () => {
+        if (g.result) result = g.result as CryptoKey;
+        else store.put(fresh, '__wrap');
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  })().catch((e) => {
+    wrapPromise = null;
+    throw e;
+  });
+  return wrapPromise;
 }
 
 export function browserBridge(): PlatformBridge {

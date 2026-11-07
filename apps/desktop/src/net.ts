@@ -5,7 +5,7 @@ import https from 'node:https';
 import tls from 'node:tls';
 import type { Duplex } from 'node:stream';
 import WebSocket from 'ws';
-import { PinStore, hostnameOf, spkiPinOfDer } from './pin';
+import { PinStore, spkiPinOfDer } from './pin';
 
 const MAX_BODY = 60 * 1024 * 1024;
 
@@ -36,7 +36,7 @@ export class PinnedNet {
   constructor(private pins: PinStore) {}
 
   private agentFor(hostPort: string): PinnedAgent {
-    const pin = this.pins.get(hostnameOf(hostPort));
+    const pin = this.pins.get(hostPort);
     if (!pin) throw new Error('untrusted_host');
     const key = `${hostPort}#${pin}`;
     let a = this.agents.get(key);
@@ -77,10 +77,15 @@ export class PinnedNet {
   wsOpen(id: string, url: string, emit: (e: { id: string; kind: 'open' | 'message' | 'close'; data?: string; code?: number }) => void): void {
     const u = this.target(url, 'wss:');
     const ws = new WebSocket(u, { agent: this.agentFor(u.host), maxPayload: 8 * 1024 * 1024 });
+    // A reused id (renderer reload) replaces the old socket, whose late events are dropped.
+    const old = this.sockets.get(id);
     this.sockets.set(id, ws);
-    ws.on('open', () => emit({ id, kind: 'open' }));
-    ws.on('message', (d) => emit({ id, kind: 'message', data: d.toString() }));
+    old?.terminate();
+    const current = () => this.sockets.get(id) === ws;
+    ws.on('open', () => current() && emit({ id, kind: 'open' }));
+    ws.on('message', (d) => current() && emit({ id, kind: 'message', data: d.toString() }));
     ws.on('close', (code) => {
+      if (!current()) return;
       this.sockets.delete(id);
       emit({ id, kind: 'close', code });
     });
@@ -94,6 +99,15 @@ export class PinnedNet {
 
   wsClose(id: string): void {
     this.sockets.get(id)?.close();
+  }
+
+  /** Closes the sockets whose id starts with `prefix` (one renderer's sockets). */
+  closeWhere(prefix: string): void {
+    for (const [id, ws] of this.sockets) {
+      if (!id.startsWith(prefix)) continue;
+      this.sockets.delete(id);
+      ws.terminate();
+    }
   }
 
   closeAll(): void {

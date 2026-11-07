@@ -21,6 +21,7 @@ export interface AuthContext {
 export class Identity {
   /** Called when a device is revoked so live sockets can be closed at once. */
   onRevoke: (deviceId: string) => void = () => undefined;
+  onLogout: (deviceId: string) => void = () => undefined;
 
   constructor(private db: DB, private serverPin: () => string, private now: () => number = Date.now) {}
 
@@ -56,11 +57,16 @@ export class Identity {
     const r = this.db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | undefined;
     if (!r) return;
     if (r.role === 'owner') throw new AuthError('cannot_remove_owner');
-    this.db.transaction(() => {
+    const revoked = this.db.transaction(() => {
       const devs = this.db.prepare("SELECT id FROM devices WHERE user_id = ? AND status != 'revoked'").all(userId) as { id: string }[];
-      for (const d of devs) this.revokeDevice(d.id);
+      this.db.prepare("UPDATE devices SET status='revoked', revoked_at=? WHERE user_id = ? AND status != 'revoked'").run(this.now(), userId);
+      this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+      // Revoked devices keep their row for the audit trail but no longer point at the user.
+      this.db.prepare('UPDATE devices SET user_id = NULL WHERE user_id = ?').run(userId);
       this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      return devs;
     })();
+    for (const d of revoked) this.onRevoke(d.id);
   }
 
   /**
@@ -254,8 +260,22 @@ export class Identity {
     return { user: u, expiresAt: s.expires_at, hash: h };
   }
 
-  endSession(token: string): void {
-    this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashToken(token));
+  /**
+   * Sign-out: ends every session of the device and unbinds it from the user, so the device
+   * signature alone can no longer mint a session; the next use needs Google login again.
+   */
+  logout(deviceId: string): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM sessions WHERE device_id = ?').run(deviceId);
+      this.db.prepare('UPDATE devices SET user_id = NULL WHERE id = ?').run(deviceId);
+    })();
+    this.onLogout(deviceId);
+  }
+
+  /** True while the session behind `hash` exists and has not expired. */
+  sessionAlive(hash: string): boolean {
+    const s = this.db.prepare('SELECT expires_at FROM sessions WHERE token_hash = ?').get(hash) as { expires_at: number } | undefined;
+    return !!s && s.expires_at > this.now();
   }
 
   // ---------- break-glass (FR-GGL-07)

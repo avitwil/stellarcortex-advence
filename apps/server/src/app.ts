@@ -106,6 +106,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
 
   const ws = new WsGateway(ctx);
   ctx.identity.onRevoke = (id) => ws.closeDevice(id);
+  ctx.identity.onLogout = (id) => ws.closeDevice(id, 4004, 'signed out');
   registerCoreRoutes(app, ctx);
   await registerFeatures(app, ctx, ws);
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));

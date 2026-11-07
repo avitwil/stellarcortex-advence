@@ -54,7 +54,12 @@ export const macKeychain: OsKeystore = {
     }
   },
   async store(account, value) {
-    await run('security', ['add-generic-password', '-U', '-a', account, '-s', SERVICE, '-w', value], { timeout: 5000 });
+    // The value goes through stdin (interactive mode), never argv, so `ps` cannot see it.
+    if (!/^[A-Za-z0-9._-]+$/.test(account) || !/^[A-Za-z0-9+/=_-]+$/.test(value)) throw new Error('unsupported keychain value');
+    await new Promise<void>((resolve, reject) => {
+      const p = execFile('security', ['-i'], { timeout: 5000 }, (e) => (e ? reject(e) : resolve()));
+      p.stdin?.end(`add-generic-password -U -a ${account} -s ${SERVICE} -w ${value}\n`);
+    });
     return undefined;
   },
   async load(account) {

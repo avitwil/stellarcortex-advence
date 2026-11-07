@@ -1,7 +1,7 @@
 // Signed API client (NFR-SEC-02/03): every request carries a device signature; the
 // short-lived session token is refreshed through the device signature.
 import {
-  signRequest, generateDeviceKey, publicKeyFromSecret, toB64url, fromB64url, utf8, sha256, randomBytes,
+  signRequest, generateDeviceKey, pairingCode, publicKeyFromSecret, toB64url, fromB64url, utf8, sha256, randomBytes,
   DESKTOP_OAUTH_REDIRECT, type SessionRes, type User, type ServerInfo, type Platform,
 } from '@advence/protocol';
 import type { PlatformBridge } from '../platform/types';
@@ -114,8 +114,15 @@ export class ApiClient {
     return this.raw<ServerInfo>('GET', '/v1/server-info', undefined, { sign: false, session: false });
   }
 
+  /**
+   * The 6-digit code shown to the user is computed here from the pin in the pairing link and
+   * our own key, never taken from the server, so a man in the middle shows a different code
+   * than the server does (FR-CLI-03).
+   */
   async startPairing(token: string, name: string, platform: Platform): Promise<{ pairingId: string; deviceId: string; code: string }> {
-    return this.raw('POST', '/v1/pair/start', { token, publicKey: await this.publicKey(), name, platform }, { sign: false, session: false });
+    const publicKey = await this.publicKey();
+    const r = await this.raw<{ pairingId: string; deviceId: string; code: string }>('POST', '/v1/pair/start', { token, publicKey, name, platform }, { sign: false, session: false });
+    return { pairingId: r.pairingId, deviceId: r.deviceId, code: pairingCode(this.server.pin, fromB64url(publicKey), r.pairingId) };
   }
 
   pairingStatus(pairingId: string): Promise<{ status: 'pending' | 'approved' | 'rejected' | 'expired' }> {

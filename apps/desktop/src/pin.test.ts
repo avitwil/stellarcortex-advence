@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PinStore, spkiPinOfPem, hostnameOf } from './pin';
+import { PinStore, spkiPinOfPem, hostnameOf, endpointKey } from './pin';
 import { waitForOAuthCode } from './oauth';
 
 function cert(): string {
@@ -15,13 +15,26 @@ function cert(): string {
 describe('NFR-SEC-01 desktop pinning (main-process pinned agent)', () => {
   const a = cert();
   const b = cert();
-  it('stores one pin per host and reports changes', () => {
+  it('stores one pin per endpoint and reports changes', () => {
     const s = new PinStore();
     expect(s.set('192.168.1.5:4443', spkiPinOfPem(a))).toBe(true);
     expect(s.set('192.168.1.5:4443', spkiPinOfPem(a))).toBe(false);
-    expect(s.get('192.168.1.5')).toBe(spkiPinOfPem(a));
+    expect(s.get('192.168.1.5:4443')).toBe(spkiPinOfPem(a));
     expect(s.set('192.168.1.5:4443', spkiPinOfPem(b))).toBe(true);
-    expect(s.get('unknown')).toBeUndefined();
+    expect(s.get('unknown:4443')).toBeUndefined();
+  });
+  it('keeps separate pins for two servers on one host (different ports)', () => {
+    const s = new PinStore();
+    s.set('192.168.1.5:4443', spkiPinOfPem(a));
+    expect(s.set('192.168.1.5:4444', spkiPinOfPem(b))).toBe(true);
+    expect(s.get('192.168.1.5:4443')).toBe(spkiPinOfPem(a));
+    expect(s.get('192.168.1.5:4444')).toBe(spkiPinOfPem(b));
+    expect(s.get('192.168.1.5')).toBeUndefined();
+  });
+  it('normalizes endpoints', () => {
+    expect(endpointKey('[FE80::1]:4443')).toBe('fe80::1:4443');
+    expect(endpointKey('Server.LOCAL')).toBe('server.local:443');
+    expect(() => endpointKey('a:b:c')).toThrow();
   });
   it('parses host:port forms', () => {
     expect(hostnameOf('[fe80::1]:4443')).toBe('fe80::1');

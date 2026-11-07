@@ -11,6 +11,7 @@ export interface WsClient {
   deviceId: string;
   user: User;
   sessionExpiresAt: number;
+  sessionHash: string;
 }
 
 export type WsHandler = (client: WsClient, payload: unknown) => Promise<unknown> | unknown;
@@ -28,7 +29,12 @@ export class WsGateway {
     this.timer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
     this.timer.unref();
     ctx.bus.subscribe((e) => {
-      for (const c of this.clients) if (e.userId === '*' ? c.user.role === 'owner' : c.user.id === e.userId) this.send(c, { type: 'event', event: e.event, data: e.data });
+      for (const c of this.clients) {
+        if (!(e.userId === '*' ? c.user.role === 'owner' : c.user.id === e.userId)) continue;
+        // No data flows on a socket whose session has expired or ended (NFR-SEC-03).
+        if (!this.sessionValid(c)) continue;
+        this.send(c, { type: 'event', event: e.event, data: e.data });
+      }
     });
   }
 
@@ -45,8 +51,12 @@ export class WsGateway {
     this.wss.handleUpgrade(req, socket, head, (ws) => this.accept(ws));
   }
 
-  closeDevice(deviceId: string): void {
-    for (const c of this.clients) if (c.deviceId === deviceId) c.ws.close(4003, 'revoked');
+  closeDevice(deviceId: string, code = 4003, reason = 'revoked'): void {
+    for (const c of this.clients) if (c.deviceId === deviceId) c.ws.close(code, reason);
+  }
+
+  private sessionValid(c: WsClient): boolean {
+    return c.sessionExpiresAt > Date.now() && this.ctx.identity.sessionAlive(c.sessionHash);
   }
 
   close(): void {
@@ -73,7 +83,7 @@ export class WsGateway {
     }
   }
 
-  private authenticate(raw: string): { deviceId: string; user: User; expiresAt: number } {
+  private authenticate(raw: string): { deviceId: string; user: User; expiresAt: number; hash: string } {
     const f = WsAuthFrame.parse(JSON.parse(raw));
     const d = this.ctx.identity.getDevice(f.deviceId);
     if (!d || d.status !== 'active') throw new AuthError('device_not_active');
@@ -81,7 +91,7 @@ export class WsGateway {
     const ok = verify(new Uint8Array(d.public_key), canonicalFrame({ deviceId: f.deviceId, ts: f.ts, nonce: f.nonce, type: 'auth', payload: f.token }), fromB64url(f.sig));
     if (!ok) throw new AuthError('bad_signature');
     const s = this.ctx.identity.checkSession(f.token, f.deviceId);
-    return { deviceId: f.deviceId, user: s.user, expiresAt: s.expiresAt };
+    return { deviceId: f.deviceId, user: s.user, expiresAt: s.expiresAt, hash: s.hash };
   }
 
   private accept(ws: WebSocket): void {
@@ -105,14 +115,17 @@ export class WsGateway {
           const a = this.authenticate(raw);
           if (client && (a.deviceId !== client.deviceId || a.user.id !== client.user.id)) throw new AuthError('identity_change');
           if (!client) {
-            client = { ws, deviceId: a.deviceId, user: a.user, sessionExpiresAt: a.expiresAt };
+            client = { ws, deviceId: a.deviceId, user: a.user, sessionExpiresAt: a.expiresAt, sessionHash: a.hash };
             this.clients.add(client);
             clearTimeout(authTimer);
-          } else client.sessionExpiresAt = a.expiresAt;
+          } else {
+            client.sessionExpiresAt = a.expiresAt;
+            client.sessionHash = a.hash;
+          }
           this.send(client, { type: 'ready', sessionExpiresAt: a.expiresAt });
           return;
         }
-        if (client.sessionExpiresAt <= Date.now()) {
+        if (!this.sessionValid(client)) {
           this.send(client, { type: 'error', error: 'session_expired' });
           return;
         }

@@ -13,7 +13,9 @@ export function waitForOAuthCode(opts: { timeoutMs?: number; port?: number; page
     readyResolve = res;
     readyReject = rej;
   });
+  let rejectResult!: (e: Error) => void;
   const result = new Promise<{ code: string; state: string }>((resolve, reject) => {
+    rejectResult = reject;
     server = http.createServer((req, res) => {
       const u = new URL(req.url ?? '/', `http://localhost:${LOOPBACK_PORT}`);
       if (u.pathname !== '/oauth/callback') {
@@ -39,12 +41,15 @@ export function waitForOAuthCode(opts: { timeoutMs?: number; port?: number; page
       reject(new Error('timeout'));
     }, opts.timeoutMs ?? 5 * 60_000);
   });
+  // Callers may only await `ready`; a failure is still reported through `result`.
+  result.catch(() => undefined);
   return {
     ready,
     result,
     cancel() {
       clearTimeout(timer);
       server?.close();
+      rejectResult(new Error('cancelled'));
     },
   };
 }

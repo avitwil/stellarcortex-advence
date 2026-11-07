@@ -51,10 +51,25 @@ public class PinnedHttpPlugin extends Plugin {
         return Base64.encodeToString(d, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
     }
 
-    static String hostOnly(String hostPort) {
-        if (hostPort.startsWith("[")) return hostPort.substring(1, hostPort.indexOf(']')).toLowerCase();
-        int i = hostPort.lastIndexOf(':');
-        return (i > 0 ? hostPort.substring(0, i) : hostPort).toLowerCase();
+    /** "host:port" key, so two servers on one machine keep separate pins (default port 443). */
+    static String endpoint(String hostPort) {
+        String host;
+        String port = "443";
+        if (hostPort.startsWith("[")) {
+            int end = hostPort.indexOf(']');
+            host = hostPort.substring(1, end);
+            if (hostPort.length() > end + 2 && hostPort.charAt(end + 1) == ':') port = hostPort.substring(end + 2);
+        } else {
+            int i = hostPort.lastIndexOf(':');
+            host = i > 0 ? hostPort.substring(0, i) : hostPort;
+            if (i > 0) port = hostPort.substring(i + 1);
+        }
+        if (!port.matches("^[0-9]{1,5}$")) throw new IllegalArgumentException("invalid port");
+        return host.toLowerCase() + ":" + port;
+    }
+
+    static String endpoint(okhttp3.HttpUrl u) {
+        return u.host().toLowerCase() + ":" + u.port();
     }
 
     @PluginMethod
@@ -65,16 +80,19 @@ public class PinnedHttpPlugin extends Plugin {
             call.reject("invalid pin");
             return;
         }
-        String h = hostOnly(host);
+        String h;
+        try { h = endpoint(host); } catch (Exception e) { call.reject("invalid host"); return; }
         String old = pins.put(h, pin);
         if (old != null && !old.equals(pin)) clients.remove(h);
         call.resolve();
     }
 
-    private OkHttpClient clientFor(String host) throws Exception {
-        final String pin = pins.get(host);
+    private OkHttpClient clientFor(okhttp3.HttpUrl url) throws Exception {
+        final String key = endpoint(url);
+        final String host = url.host().toLowerCase();
+        final String pin = pins.get(key);
         if (pin == null) throw new IOException("untrusted_host");
-        OkHttpClient c = clients.get(host);
+        OkHttpClient c = clients.get(key);
         if (c != null) return c;
         X509TrustManager tm = new X509TrustManager() {
             @Override public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException { throw new CertificateException("client auth not supported"); }
@@ -98,7 +116,7 @@ public class PinnedHttpPlugin extends Plugin {
             .pingInterval(20, TimeUnit.SECONDS)
             .callTimeout(90, TimeUnit.SECONDS)
             .build();
-        clients.put(host, c);
+        clients.put(key, c);
         return c;
     }
 
@@ -108,7 +126,7 @@ public class PinnedHttpPlugin extends Plugin {
             String url = call.getString("url", "");
             if (!url.startsWith("https://")) throw new IOException("https only");
             okhttp3.HttpUrl u = okhttp3.HttpUrl.get(url);
-            OkHttpClient c = clientFor(u.host().toLowerCase());
+            OkHttpClient c = clientFor(u);
             Headers.Builder hb = new Headers.Builder();
             JSObject hs = call.getObject("headers", new JSObject());
             Iterator<String> it = hs.keys();
@@ -151,7 +169,7 @@ public class PinnedHttpPlugin extends Plugin {
             String url = call.getString("url", "");
             if (!url.startsWith("wss://")) throw new IOException("wss only");
             okhttp3.HttpUrl u = okhttp3.HttpUrl.get(url.replaceFirst("^wss://", "https://"));
-            OkHttpClient c = clientFor(u.host().toLowerCase());
+            OkHttpClient c = clientFor(u);
             WebSocket ws = c.newWebSocket(new Request.Builder().url(u).build(), new WebSocketListener() {
                 @Override public void onOpen(WebSocket w, Response r) { emit(id, "open", null, 0); }
                 @Override public void onMessage(WebSocket w, String text) { emit(id, "message", text, 0); }
