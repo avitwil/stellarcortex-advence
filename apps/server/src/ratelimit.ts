@@ -13,6 +13,9 @@ export class RateLimiter {
     h.n++;
     return h.n <= this.limit;
   }
+  clear(): void {
+    this.hits.clear();
+  }
   private gc(t: number) {
     for (const [k, v] of this.hits) if (v.reset <= t) this.hits.delete(k);
   }

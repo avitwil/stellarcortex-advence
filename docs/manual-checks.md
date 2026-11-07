@@ -48,6 +48,46 @@ Same as MC-S2-WIN steps 2-8 on macOS (Apple silicon and Intel). GPU is not expec
 3. Expected: login succeeds; the account becomes owner; Settings > Google shows Gmail,
    Calendar, Drive and Contacts connected (after P5).
 
+## P1
+
+### MC-P1-ANDROID: pairing, Google login and chat on Android (P1 exit, FR-CLI-02/03, FR-GGL-02)
+Prerequisite: a running server (`advence serve`) on the LAN, Google setup done (MC-S4-GOOGLE),
+and in the Google Cloud project an **Android** OAuth client for package
+`com.stellarcortex.advence` with the SHA-1 of the key that signed the APK (the setup wizard
+shows both; for the CI debug APK use the debug key SHA-1 printed by
+`keytool -list -v -keystore ~/.android/debug.keystore -storepass android`).
+1. Install the APK from the CI `android-apk` artifact on an Android 9+ phone.
+2. On the server console run `advence pair`; a QR and a link are shown.
+3. In the app tap **Scan QR**, allow the camera, scan the QR.
+4. The app shows a 6-digit code. Type the same code on the server console (or approve
+   in desktop Settings > Devices). Expected: the codes match and the app moves on.
+5. Tap **Sign in with Google** and pick your account. Expected: you reach the main screen.
+6. Expected: the chat area shows "connected" and the ping round-trip succeeds.
+7. Repeat steps 2-4 with a **wrong** server (another server's link with the first server's
+   address). Expected: the app refuses with a key-mismatch error.
+
+### MC-P1-WIN / MC-P1-MAC: desktop installers (FR-CLI-01, P1 exit)
+1. In GitHub > Actions run the `installers` workflow on the PR branch (Run workflow).
+2. Download `desktop-windows-2025` (.exe) and `desktop-macos-15` (.dmg).
+3. Windows 11: run the installer (SmartScreen: More info > Run anyway, since it is
+   unsigned per C-04). macOS 14+: open the DMG, drag to Applications, first launch with
+   right-click > Open (ad-hoc signed).
+4. Paste the pairing link from `advence pair`, type the code on the server, sign in with
+   Google in the system browser. Expected: the app shows the main screen and the chat
+   ping round-trip works.
+
+### MC-P1-KEYSTORE: master key in the OS keystore (NFR-SEC-04)
+1. Run the server once on Windows 11, macOS 14+ and a Linux desktop with a keyring.
+2. Expected: `advence serve` logs `master key created` with `"method":"os-keystore"` and
+   does not ask for a passphrase; `master.json` in the data folder names the keystore
+   (`windows-dpapi`, `macos-keychain` or `linux-secret-service`). After a restart it logs
+   `master key unlocked`, again without a passphrase.
+
+### MC-P1-WIZARD: setup wizard timing (FR-GGL-01)
+1. Give a non-technical tester a fresh server and the desktop app.
+2. Expected: they complete the Google setup wizard (project, consent screen, Web and
+   Android clients, paste ID and secret) in under 15 minutes without help.
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|

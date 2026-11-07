@@ -81,7 +81,9 @@ export class Identity {
         if (!this.hasOwner()) {
           // Break-glass reset may have left an unbound owner row; otherwise create one.
           this.db.prepare("UPDATE users SET role='member' WHERE role='owner' AND google_sub IS NULL").run();
-          const same = this.db.prepare('SELECT id FROM users WHERE email = ?').get(g.email.toLowerCase()) as { id: string } | undefined;
+          // Only an unbound row may be claimed; a row bound to another Google account never is.
+          const same = this.db.prepare('SELECT id FROM users WHERE email = ? AND google_sub IS NULL').get(g.email.toLowerCase()) as { id: string } | undefined;
+          if (!same && this.db.prepare('SELECT 1 FROM users WHERE email = ?').get(g.email.toLowerCase())) throw new AuthError('not_allowlisted');
           const id = same?.id ?? newId('usr');
           if (same) this.db.prepare("UPDATE users SET google_sub = ?, name = ?, picture = ?, role = 'owner' WHERE id = ?").run(g.sub, g.name, g.picture ?? null, id);
           else this.db.prepare("INSERT INTO users(id, google_sub, email, name, picture, role, created_at) VALUES(?,?,?,?,?,'owner',?)").run(id, g.sub, g.email.toLowerCase(), g.name, g.picture ?? null, this.now());
@@ -150,7 +152,8 @@ export class Identity {
         return 'mismatch';
       }
       this.db.prepare("UPDATE pairings SET status='approved' WHERE id = ?").run(pairingId);
-      this.db.prepare("UPDATE devices SET status='active' WHERE id = ?").run(p.device_id);
+      // Only a device still waiting for approval can become active; a revoked one never returns.
+      this.db.prepare("UPDATE devices SET status='active' WHERE id = ? AND status='pending'").run(p.device_id);
       return 'ok';
     })();
     if (outcome === 'not_pending') throw new AuthError('pairing_not_pending');
@@ -194,6 +197,7 @@ export class Identity {
 
   revokeDevice(id: string): void {
     this.db.prepare("UPDATE devices SET status='revoked', revoked_at=? WHERE id = ?").run(this.now(), id);
+    this.db.prepare("UPDATE pairings SET status='rejected' WHERE device_id = ? AND status='pending'").run(id);
     this.db.prepare('DELETE FROM sessions WHERE device_id = ?').run(id);
     this.onRevoke(id);
   }

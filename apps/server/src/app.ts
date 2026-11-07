@@ -1,4 +1,5 @@
 // Server assembly: boot sequence, Fastify over TLS 1.3, WebSocket gateway.
+import { RateLimiter } from './ratelimit.js';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, getMeta, type DB } from './db.js';
@@ -41,7 +42,7 @@ export async function boot(o: BootOptions): Promise<{ ctx: AppContext; db: DB; t
     keystore: o.keystore === undefined ? defaultKeystore() : o.keystore,
     passphrase: o.passphrase,
   });
-  if (created) log.info({ method }, 'master key created');
+  log.info({ method }, created ? 'master key created' : 'master key unlocked');
   const db = openDb(path.join(o.config.dataDir, 'state.db'));
   const crypto = new Crypto(key);
   const secrets = new SecretStore(db, crypto);
@@ -60,6 +61,7 @@ export async function boot(o: BootOptions): Promise<{ ctx: AppContext; db: DB; t
     tls,
     googleEndpoints: o.googleEndpoints,
     serverName: name,
+    publicLimiter: new RateLimiter(20, 60_000),
     google() {
       const id = getMeta(db, 'google.clientId');
       const secret = id ? secrets.get('google.clientSecret') : undefined;

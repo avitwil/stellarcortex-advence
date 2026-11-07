@@ -9,13 +9,12 @@ import type { AppContext } from '../context.js';
 import { getMeta, setMeta } from '../db.js';
 import { newToken } from '../ids.js';
 import { LOGIN_SCOPES } from '../auth/google.js';
-import { RateLimiter } from '../ratelimit.js';
 import { ANDROID_PACKAGE, ANDROID_SIGNING_SHA1 } from '../build-info.js';
 
 const OAUTH_STATE_TTL = 10 * 60_000;
 
 export function registerCoreRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const publicLimiter = new RateLimiter(20, 60_000);
+  const publicLimiter = ctx.publicLimiter;
 
   type Handler = (req: FastifyRequest) => Promise<unknown> | unknown;
   const route = (method: 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'PUT', url: string, level: AuthLevel | 'public' | 'setup', h: Handler) => {

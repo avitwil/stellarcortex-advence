@@ -1,3 +1,4 @@
+import type { RateLimiter } from './ratelimit.js';
 import type { DB } from './db.js';
 import type { Identity } from './auth/identity.js';
 import type { SecretStore, Crypto } from './secrets.js';
@@ -20,4 +21,6 @@ export interface AppContext {
   google(): GoogleOidc | null;
   googleEndpoints?: GoogleEndpoints;
   serverName(): string;
+  /** Per-IP limit for unauthenticated routes. */
+  publicLimiter: RateLimiter;
 }

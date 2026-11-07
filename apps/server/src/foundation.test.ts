@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import tls from 'node:tls';
@@ -13,6 +13,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await env.close();
 });
+// Each test starts with a fresh per-IP budget; the limiter has its own test below.
+beforeEach(() => env.server.ctx.publicLimiter.clear());
 const port = () => Number(new URL(env.server.url).port);
 
 describe('NFR-SEC-01 transport', () => {
@@ -71,6 +73,14 @@ describe('FR-CLI-03 / NFR-SEC-02 pairing', () => {
     for (let i = 0; i < 5; i++) expect(() => env.server.ctx.identity.approvePairing(pairingId, wrong)).toThrow();
     expect(() => env.server.ctx.identity.approvePairing(pairingId, code)).toThrow();
     expect((await c.request('GET', `/v1/pair/status/${pairingId}`)).status).toBe(403);
+  });
+  it('a device revoked while pending cannot be approved back to active', async () => {
+    const link = env.server.ctx.identity.createPairingToken(null, `127.0.0.1:${port()}`, 'Srv').link;
+    const c = TestClient.fromLink(link, port());
+    const { pairingId, code } = await c.pair(link);
+    env.server.ctx.identity.revokeDevice(c.deviceId);
+    expect(() => env.server.ctx.identity.approvePairing(pairingId, code)).toThrow();
+    expect(env.server.ctx.identity.getDevice(c.deviceId)?.status).toBe('revoked');
   });
   it('a pending device cannot call device routes', async () => {
     const link = env.server.ctx.identity.createPairingToken(null, `127.0.0.1:${port()}`, 'Srv').link;
@@ -268,6 +278,16 @@ describe('P1 exit: empty chat round-trip over the signed WebSocket', () => {
     s.send('chat.ping', {}, 'x');
     const f = await s.next((x) => x.type === '__closed');
     expect(f.code).toBe(4001);
+  });
+});
+
+describe('public route rate limit', () => {
+  it('more than 20 unauthenticated requests a minute from one IP get 429', async () => {
+    const c = new TestClient(env.server.url, env.server.ctx.tls.pin);
+    const codes: number[] = [];
+    for (let i = 0; i < 22; i++) codes.push((await c.request('POST', '/v1/pair/start', { token: 'x'.repeat(43), publicKey: toB64url(randomBytes(32)), name: 'n', platform: 'linux' }, { sign: false })).status);
+    expect(codes.slice(0, 20).every((s) => s !== 429)).toBe(true);
+    expect(codes.slice(20)).toEqual([429, 429]);
   });
 });
 
