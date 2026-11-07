@@ -66,15 +66,12 @@ jobs:
       - name: Chromium sandbox probe (FR-PC-04 diagnostics)
         continue-on-error: true
         run: |
-          probe() {
-            podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all --entrypoint /bin/sh localhost/advence-bot-computer:ci -c '
-              unshare -Urm sh -c "mount -t tmpfs x /mnt && echo caps-in-userns-ok" || echo caps-in-userns-denied
-              timeout 60 chromium --headless=new --no-first-run --disable-gpu --enable-logging=stderr --v=1 --dump-dom chrome://sandbox 2>&1 | grep -vE "crashpad|dbus|Fontconfig" | grep -iE "adequately|FATAL|ERROR|sandbox|namespace|zygote|uid_map|setgroups|chroot|clone" | head -25' || true
-          }
-          echo "--- restrict_unprivileged_userns=1"; probe
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          echo "--- restrict_unprivileged_userns=0"; probe
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          run() { podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all --entrypoint /bin/sh localhost/advence-bot-computer:ci -c "$1" || true; }
+          run 'dpkg -l | grep -E "^ii +(chromium|libc6|libstdc|libglib2|libnss3) " | cut -c1-90; chromium --version'
+          echo "--- sandboxed"
+          run 'timeout 60 chromium --headless=new --no-first-run --disable-gpu --enable-logging=stderr --v=1 --dump-dom chrome://sandbox 2>&1 | grep -vE "crashpad|dbus|Fontconfig|cpufreq" | tail -n 40'
+          echo "--- without the sandbox (diagnostic only)"
+          run 'timeout 60 chromium --headless=new --no-sandbox --no-first-run --disable-gpu --dump-dom about:blank 2>&1 | grep -vE "crashpad|dbus|Fontconfig|cpufreq" | tail -n 15'
       - name: Smoke test
         run: |
           printf 'ci-only-password' | podman secret create vnc_password -

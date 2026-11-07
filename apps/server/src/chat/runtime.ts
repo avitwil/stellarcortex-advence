@@ -2,7 +2,7 @@
 // (FR-BOT-02), hand-offs between Bots in group chats (FR-BOT-03), usage (FR-BOT-05), the
 // Library (FR-UI-04), the activity log and push (D-18).
 import { z } from 'zod';
-import { CHAT_EVENTS, type Bot, type Message, type User } from '@advence/protocol';
+import { CHAT_EVENTS, type Bot, type Message, type ModelSourceKind, type User } from '@advence/protocol';
 import type { AppContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { ANTHROPIC_DEFAULT_MODEL } from '../models/anthropic.js';
@@ -16,7 +16,6 @@ import type { UsageLog } from './usage.js';
 import type { Activity } from './activity.js';
 import type { Push } from './push.js';
 import type { SearchIndex } from './search.js';
-import type { BotTools } from './tools.js';
 
 export interface ChatServices {
   bots: Bots;
@@ -27,9 +26,24 @@ export interface ChatServices {
   activity: Activity;
   push: Push;
   search: SearchIndex;
-  /** P3 tools: code, computer, host (set once the computer services exist) */
-  tools?: BotTools;
+  /** Tool groups added by later phases (P3 code/computer/host, P4 memory and skills). */
+  providers?: ToolProvider[];
+  /** Called after each finished reply (P4 learn pass). */
+  observers?: ReplyObserver[];
 }
+
+export interface ToolCtx { user: User; bot: Bot; convId: string; messageId: string; signal: AbortSignal }
+
+export interface ToolProvider {
+  specs(user: User, bot: Bot): ToolSpec[];
+  handles(name: string): boolean;
+  run(c: ToolCtx, call: ToolCall): Promise<ModelMessage>;
+  /** extra system prompt text for this Bot, if any */
+  system?(user: User, bot: Bot): string | null;
+}
+
+export interface ReplyInfo { user: User; bot: Bot; convId: string; replyId: string; toolCalls: ToolCall[] }
+export interface ReplyObserver { afterReply(info: ReplyInfo): void }
 
 /** Bounds that keep Bots from talking to each other forever. */
 export const MAX_TOOL_TURNS = 8;
@@ -93,9 +107,13 @@ export class ChatRuntime {
 
   constructor(private ctx: AppContext, private s: ChatServices) {}
 
-  /** P3: the code, computer and host tools (set once the computer services exist). */
-  setTools(t: BotTools): void {
-    this.s.tools = t;
+  /** Adds a tool group (P3: code, computer and host; P4: memory and skills). */
+  setTools(t: ToolProvider): void {
+    (this.s.providers ??= []).push(t);
+  }
+
+  observe(o: ReplyObserver): void {
+    (this.s.observers ??= []).push(o);
   }
 
   /** Posts the user's message and starts the replies. Retrying with the same clientId is a no-op. */
@@ -144,6 +162,11 @@ export class ChatRuntime {
     while (this.pending.size) await Promise.allSettled([...this.pending]);
   }
 
+  /** Replies running right now. */
+  busy(): number {
+    return this.running.size;
+  }
+
   abortAll(): void {
     for (const r of this.running.values()) r.ac.abort();
   }
@@ -172,8 +195,9 @@ export class ChatRuntime {
       this.ctx.bus.publish(user.id, CHAT_EVENTS.messageDelta, { id: placeholder.id, conversationId: convId, text: t });
     };
     let final: MsgRow;
+    const toolCalls: ToolCall[] = [];
     try {
-      await this.runModel(user, bot, convId, parentId, placeholder.id, o, signal, emit);
+      await this.runModel(user, bot, convId, parentId, placeholder.id, o, signal, emit, toolCalls);
       if (!text.trim()) throw new ProviderError('failed', 'empty reply');
       final = store.finishMessage(placeholder.id, text, 'done');
     } catch (e) {
@@ -192,6 +216,13 @@ export class ChatRuntime {
     if (final.status !== 'done') return { text, ok: false };
 
     this.s.library.fromReply(user.id, bot.id, convId, final.id, text, store.attachmentsOf(final.id));
+    for (const ob of this.s.observers ?? []) {
+      try {
+        ob.afterReply({ user, bot, convId, replyId: final.id, toolCalls });
+      } catch (e) {
+        this.ctx.log.warn({ err: (e as Error).message }, 'reply observer failed');
+      }
+    }
     if (bot.notify === 'all') void this.s.push.wake(user.id, final.id);
 
     // Group hand-off: Bots this reply mentions take the next turn (FR-BOT-03).
@@ -211,14 +242,14 @@ export class ChatRuntime {
     return { text, ok: true };
   }
 
-  private async runModel(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string, o: RunOpts, signal: AbortSignal, emit: (t: string) => void): Promise<void> {
+  private async runModel(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string, o: RunOpts, signal: AbortSignal, emit: (t: string) => void, calls?: ToolCall[]): Promise<void> {
     if (!bot.sourceId) throw new HttpError(409, 'no_model_source');
     const { provider, kind } = this.s.sources.provider(user, bot.id, bot.sourceId);
     const model = bot.model || defaultModel(kind) || (await this.firstModel(provider, signal));
     const messages = this.context(user, bot, convId, parentId, selfId);
     if (!messages.length) throw new HttpError(409, 'nothing_to_answer');
     const delegates = bot.tools.includes('delegate') && o.depth < MAX_DELEGATION_DEPTH ? this.s.bots.list(user).filter((b) => b.id !== bot.id) : [];
-    const tools: ToolSpec[] = [...(this.s.tools?.specs(user, bot) ?? [])];
+    const tools: ToolSpec[] = (this.s.providers ?? []).flatMap((p) => p.specs(user, bot));
     if (delegates.length) tools.unshift(...[{
           name: 'delegate',
           description: `Hand a task to another of the user's Bots and get its answer back. Available Bots: ${delegates.map((b) => b.name).join(', ')}.`,
@@ -233,28 +264,68 @@ export class ChatRuntime {
           },
         }]);
     const system = this.system(user, bot, convId, delegates);
+    await this.loop({ user, bot, kind, provider, model, system, messages, tools, signal, emit }, async (call) => {
+      calls?.push(call);
+      return this.runTool(user, bot, call, delegates, o, signal, convId, selfId);
+    });
+  }
 
+  /** The model/tool loop shared by chat replies and background runs. */
+  private async loop(
+    r: { user: User; bot: Bot; kind: ModelSourceKind; provider: ModelProvider; model: string; system: string; messages: ModelMessage[]; tools: ToolSpec[]; signal: AbortSignal; emit: (t: string) => void; maxTurns?: number },
+    onCall: (call: ToolCall) => Promise<ModelMessage>,
+  ): Promise<void> {
     let wrote = false;
-    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+    for (let turn = 0; turn < (r.maxTurns ?? MAX_TOOL_TURNS); turn++) {
       let done: Extract<StreamEvent, { type: 'done' }> | null = null;
       let turnText = '';
-      for await (const ev of provider.stream({ model, system, messages, tools, signal })) {
+      for await (const ev of r.provider.stream({ model: r.model, system: r.system, messages: r.messages, tools: r.tools, signal: r.signal })) {
         if (ev.type === 'text') {
           // Text from an earlier tool turn and this one are separated by a blank line.
-          if (!turnText && wrote) emit('\n\n');
+          if (!turnText && wrote) r.emit('\n\n');
           wrote = true;
           turnText += ev.text;
-          emit(ev.text);
+          r.emit(ev.text);
         } else done = ev;
       }
       if (!done) throw new ProviderError('failed', 'the stream ended early');
-      if (done.usage) this.s.usage.record(user.id, bot.id, bot.sourceId, kind, model, done.usage);
+      if (done.usage) this.s.usage.record(r.user.id, r.bot.id, r.bot.sourceId!, r.kind, r.model, done.usage);
       if (done.stop === 'refusal' && !turnText) throw new ProviderError('failed', 'refused');
       if (done.stop !== 'tool_use' || done.toolCalls.length === 0) return;
-      messages.push({ role: 'assistant', text: done.text, toolCalls: done.toolCalls, native: done.native });
-      for (const call of done.toolCalls) messages.push(await this.runTool(user, bot, call, delegates, o, signal, convId, selfId));
+      r.messages.push({ role: 'assistant', text: done.text, toolCalls: done.toolCalls, native: done.native });
+      for (const call of done.toolCalls) r.messages.push(await onCall(call));
     }
     throw new ProviderError('failed', 'too many tool turns');
+  }
+
+  /**
+   * A run outside any chat (P4 learn pass and curator): the Bot's own model with only the given
+   * tools; nothing is posted to a conversation. Usage is recorded as usual.
+   */
+  async background(user: User, bot: Bot, o: { system: string; prompt: string; providers: ToolProvider[]; convId?: string; signal?: AbortSignal; maxTurns?: number }): Promise<{ text: string; calls: ToolCall[] }> {
+    if (!bot.sourceId) throw new HttpError(409, 'no_model_source');
+    const signal = o.signal ?? AbortSignal.timeout(10 * 60_000);
+    const { provider, kind } = this.s.sources.provider(user, bot.id, bot.sourceId);
+    const model = bot.model || defaultModel(kind) || (await this.firstModel(provider, signal));
+    const tools = o.providers.flatMap((p) => p.specs(user, bot));
+    const calls: ToolCall[] = [];
+    let text = '';
+    await this.loop({ user, bot, kind, provider, model, system: o.system, messages: [{ role: 'user', content: [{ type: 'text', text: o.prompt }] }], tools, signal, emit: (t) => (text += t), maxTurns: o.maxTurns }, async (call) => {
+      calls.push(call);
+      const p = o.providers.find((x) => x.handles(call.name));
+      if (!p) return { role: 'tool', toolCallId: call.id, content: `Unknown tool ${call.name}.`, isError: true };
+      return p.run({ user, bot, convId: o.convId ?? '', messageId: '', signal }, call);
+    });
+    return { text, calls };
+  }
+
+  /** The last messages of a conversation as plain text, from the Bot's point of view. */
+  transcript(user: User, bot: Bot, convId: string, limit = 20): string {
+    const rows = this.s.store.contextRows(convId, null, limit).filter((r) => r.status === 'done');
+    return rows.map((r) => {
+      const who = r.author === 'user' ? user.name : r.author === 'system' ? 'Task' : r.bot_id === bot.id ? 'You' : (this.s.bots.get(r.bot_id ?? '')?.name ?? this.botName(r.bot_id));
+      return `[${who}] ${this.s.store.body(r).text}`;
+    }).join('\n\n');
   }
 
   private async firstModel(provider: ModelProvider, signal: AbortSignal): Promise<string> {
@@ -265,7 +336,8 @@ export class ChatRuntime {
 
   private async runTool(user: User, bot: Bot, call: ToolCall, delegates: Bot[], o: RunOpts, signal: AbortSignal, convId: string, selfId: string): Promise<ModelMessage> {
     const fail = (content: string): ModelMessage => ({ role: 'tool', toolCallId: call.id, content, isError: true });
-    if (this.s.tools?.handles(call.name)) return this.s.tools.run({ user, bot, convId, messageId: selfId, signal }, call);
+    const provider = (this.s.providers ?? []).find((p) => p.handles(call.name));
+    if (provider) return provider.run({ user, bot, convId, messageId: selfId, signal }, call);
     if (call.name !== 'delegate') return fail(`Unknown tool ${call.name}.`);
     const p = DelegateInput.safeParse(call.input);
     if (!p.success) return fail('Invalid input: give "bot" (a Bot name) and "task".');
@@ -296,6 +368,10 @@ export class ChatRuntime {
       }
     }
     if (delegates.length) parts.push(`You can hand tasks to these Bots with the delegate tool: ${delegates.map((b) => b.name).join(', ')}.`);
+    for (const p of this.s.providers ?? []) {
+      const extra = p.system?.(user, bot);
+      if (extra) parts.push(extra);
+    }
     return parts.filter(Boolean).join('\n\n');
   }
 

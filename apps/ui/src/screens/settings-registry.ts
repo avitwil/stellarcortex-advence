@@ -1,8 +1,9 @@
-// Settings sections contributed by later phases (P2: models, Bots, notifications, usage; P3: cloud computer).
+// Settings sections contributed by later phases (P2: models, Bots, notifications, usage; P3: cloud computer; P4: skills, memory).
 import type { ComponentType } from 'react';
 import type { SectionId } from './Settings';
 import { BotsSection, ModelsSection, NotificationsSection, UsageSection } from './chat/ChatSettings';
 import { ComputerSection } from './chat/ComputerSettings';
+import { MemorySection, SkillsSection } from './chat/MemorySettings';
 
 export const extraSections: Partial<Record<SectionId, ComponentType>> = {
   models: ModelsSection,
@@ -10,4 +11,6 @@ export const extraSections: Partial<Record<SectionId, ComponentType>> = {
   notifications: NotificationsSection,
   usage: UsageSection,
   computer: ComputerSection,
+  skills: SkillsSection,
+  memory: MemorySection,
 };

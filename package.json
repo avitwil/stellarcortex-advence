@@ -19,9 +19,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
+    "playwright": "1.63.0",
     "typescript": "~5.9.3",
     "vitest": "^3.2.7",
-    "playwright": "1.63.0"
+    "yaml": "2.9.1"
   },
   "pnpm": {
     "overrides": {

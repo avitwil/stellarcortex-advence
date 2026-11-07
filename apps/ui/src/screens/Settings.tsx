@@ -10,7 +10,7 @@ import { ago } from '../lib/time';
 import { extraSections } from './settings-registry';
 
 export type SectionId =
-  | 'account' | 'models' | 'google' | 'mcp' | 'skills' | 'bots' | 'computer' | 'devices' | 'users'
+  | 'account' | 'models' | 'google' | 'mcp' | 'skills' | 'memory' | 'bots' | 'computer' | 'devices' | 'users'
   | 'appearance' | 'language' | 'notifications' | 'usage' | 'browserUi' | 'updates' | 'servers';
 
 const SECTIONS: { id: SectionId; icon: IconName; owner?: boolean }[] = [
@@ -19,6 +19,7 @@ const SECTIONS: { id: SectionId; icon: IconName; owner?: boolean }[] = [
   { id: 'google', icon: 'globe' },
   { id: 'mcp', icon: 'mcp' },
   { id: 'skills', icon: 'skill' },
+  { id: 'memory', icon: 'library' },
   { id: 'bots', icon: 'bot' },
   { id: 'computer', icon: 'computer' },
   { id: 'devices', icon: 'device' },

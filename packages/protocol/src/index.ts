@@ -9,3 +9,4 @@ export * from './ws.js';
 export * from './chat.js';
 export * from './version.js';
 export * from './computer.js';
+export * from './memory.js';

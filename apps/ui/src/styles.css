@@ -253,3 +253,6 @@ textarea.input { resize: vertical; }
 .step pre .add { color: var(--ok); }
 .step pre .del { color: var(--danger, #e5484d); }
 .step.failed > summary { color: var(--warn); }
+/* P4: skill review (SKILL.md, diffs) */
+pre.code { margin: 0; padding: 10px 12px; background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 360px; overflow: auto; font-family: var(--mono); font-size: 12px; direction: ltr; text-align: left; white-space: pre; }
+details > summary { cursor: pointer; }

@@ -228,7 +228,8 @@ describe('FR-UI-05 live view, take-over and hand-back', () => {
     const list = await req(owner, 'GET', `/v1/conversations/${conv}/messages`);
     expect(list[list.length - 1].text).toBe('Tool said: click done.');
     // The screenshot went back to the model with the tool result.
-    const last = models.requests[models.requests.length - 1]!.body.messages as any[];
+    // (the learn pass that follows a task is a separate, later request)
+    const last = models.requests.filter((r) => !JSON.stringify(r.body).includes('learn pass')).pop()!.body.messages as any[];
     const img = last.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).find((p: any) => p.type === 'image_url');
     expect(img.image_url.url).toBe(`data:image/jpeg;base64,${FAKE_JPEG.toString('base64')}`);
   });

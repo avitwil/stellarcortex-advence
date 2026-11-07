@@ -218,6 +218,34 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (bot_id, conversation_id, engine)
   );
   `,
+  // P4: skills with usage telemetry (FR-LRN-04) and third-party installs awaiting the owner
+  // (FR-SKL-02). Names and sources are sealed; lookups use a keyed hash of the name.
+  `
+  CREATE TABLE skills (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    bot_id TEXT REFERENCES bots(id),
+    name_hash TEXT NOT NULL,
+    meta BLOB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    locked INTEGER NOT NULL DEFAULT 0,
+    views INTEGER NOT NULL DEFAULT 0,
+    uses INTEGER NOT NULL DEFAULT 0,
+    patches INTEGER NOT NULL DEFAULT 0,
+    last_used INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX skills_name ON skills(user_id, IFNULL(bot_id, ''), name_hash);
+  CREATE TABLE skill_reviews (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    skill_id TEXT REFERENCES skills(id),
+    body BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

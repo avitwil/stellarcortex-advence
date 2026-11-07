@@ -13,6 +13,7 @@ import type { ComputerManager } from '../computer/manager.js';
 import type { ChatStore } from './store.js';
 import type { UsageLog } from './usage.js';
 import type { Activity } from './activity.js';
+import type { ToolProvider } from './runtime.js';
 
 const CodeInput = z.object({ task: z.string().min(1).max(100_000) });
 export const WORKSPACE = '/home/bot/workspace';
@@ -40,7 +41,7 @@ export interface ToolDeps {
 
 interface CallCtx { user: User; bot: Bot; convId: string; messageId: string; signal: AbortSignal }
 
-export class BotTools {
+export class BotTools implements ToolProvider {
   constructor(private ctx: AppContext, private d: ToolDeps) {}
 
   specs(user: User, bot: Bot): ToolSpec[] {

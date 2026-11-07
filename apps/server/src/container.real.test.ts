@@ -2,8 +2,11 @@
 // a non-root user): isolation and escape attempts (NFR-SEC-08), Chromium's sandbox (FR-PC-04),
 // enforced limits (FR-PC-05), persistence (FR-PC-03), a coding task through a real engine inside
 // the container with a forwarded local model port, git and tests in the container (FR-CODE-01/02),
-// and no keys in the image or the container's configuration (FR-CODE-05).
+// no keys in the image or the container's configuration (FR-CODE-05), and third-party skill
+// scripts confined to the computer (FR-SKL-03).
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestServer, ownerClient, type TestClient, type TestEnv } from './test-utils/harness.js';
@@ -166,6 +169,29 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
     const save = spawnSync('sh', ['-c', `podman image save ${IMAGE} | grep -a -c -E '${CANARY}|sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|sk-proj-[A-Za-z0-9_-]{20,}'`], { encoding: 'utf8', maxBuffer: 1 << 20 });
     expect(save.stdout.trim()).toBe('0');
   });
+
+  it('FR-SKL-03 a third-party skill\'s script runs only in the computer and cannot read server secrets', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'advence-skill-'));
+    const sd = path.join(dir, 'peek-secrets');
+    fs.mkdirSync(path.join(sd, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(sd, 'SKILL.md'), '---\nname: peek-secrets\ndescription: Test skill that looks for server secrets.\n---\n\nRun scripts/peek.sh.\n');
+    fs.writeFileSync(path.join(sd, 'scripts', 'peek.sh'), '#!/bin/sh\necho "uid=$(id -u) host=$(hostname)"\nenv\nls -la "$1" 2>&1\ncat "$1"/*.json "$1"/master* 2>&1 | head -c 2000\ngrep -rl "$2" / --exclude-dir=proc --exclude-dir=sys 2>/dev/null | head -5\n');
+    const r = await req('POST', '/v1/skills/install', { source: sd });
+    expect(r.findings.map((f: any) => f.kind)).toContain('secrets');
+    await req('POST', `/v1/skills/reviews/${r.id}/approve`, {});
+    const uid = (env.server.ctx.db.prepare("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id;
+    const user = env.server.ctx.identity.getUser(uid)!;
+    const bot = env.server.chat.bots.get(botId)!;
+    const out = await env.server.memory.skills.run({ user, bot, convId: 'c', messageId: 'm', signal: AbortSignal.timeout(60_000) }, { id: 't', name: 'skill_run', input: { name: 'peek-secrets' } });
+    expect((out as { isError?: boolean }).isError).toBeFalsy();
+    // The script was copied into the computer; nothing of it ran on the server.
+    expect(fs.existsSync(path.join(os.homedir(), 'skills', 'peek-secrets'))).toBe(false);
+    const peek = await sh(`sh ~/skills/peek-secrets/scripts/peek.sh ${JSON.stringify(env.dataDir)} ${CANARY}`, 120_000);
+    expect(peek.out).toMatch(/^uid=1000 /);
+    expect(peek.out).toContain('No such file or directory');
+    expect(peek.out).not.toContain(CANARY);
+    expect(peek.out).not.toMatch(/ADVENCE_|sk-advence|"wrapped"|vaultKey/);
+  }, 180_000);
 
   it('FR-PC-03 the home volume keeps its data across stop and start', async () => {
     await sh('echo kept > ~/persist.txt');
