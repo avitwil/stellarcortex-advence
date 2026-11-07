@@ -1,4 +1,5 @@
 import type { RateLimiter } from './ratelimit.js';
+import type { ProcessHost } from './models/host.js';
 import type { DB } from './db.js';
 import type { Identity } from './auth/identity.js';
 import type { SecretStore, Crypto } from './secrets.js';
@@ -23,4 +24,10 @@ export interface AppContext {
   serverName(): string;
   /** Per-IP limit for unauthenticated routes. */
   publicLimiter: RateLimiter;
+  /** Outbound HTTP for model sources and push. */
+  fetch: typeof fetch;
+  /** Where subscription CLIs run (the Bot's container). */
+  processHost: ProcessHost;
+  /** Test-only overrides; never set in production. */
+  testHooks?: { anthropicBaseUrl?: string };
 }

@@ -65,6 +65,139 @@ const MIGRATIONS: string[] = [
     expires_at INTEGER NOT NULL
   );
   `,
+  // 2: bots and chat (P2). Content columns are sealed under the content key (NFR-SEC-04).
+  `
+  ALTER TABLE users ADD COLUMN removed_at INTEGER;
+  CREATE TABLE model_sources (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    base_url TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE bots (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    avatar TEXT NOT NULL,
+    instructions BLOB NOT NULL,
+    source_id TEXT REFERENCES model_sources(id) ON DELETE SET NULL,
+    model TEXT NOT NULL DEFAULT '',
+    engine TEXT NOT NULL,
+    tools TEXT NOT NULL DEFAULT '[]',
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    proactive INTEGER NOT NULL DEFAULT 0,
+    host_control INTEGER NOT NULL DEFAULT 0,
+    notify TEXT NOT NULL DEFAULT 'all',
+    created_at INTEGER NOT NULL,
+    archived_at INTEGER
+  );
+  CREATE INDEX bots_user ON bots(user_id);
+  CREATE TABLE conversations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL CHECK (kind IN ('direct','group')),
+    title BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    archived_at INTEGER
+  );
+  CREATE INDEX conversations_user ON conversations(user_id, updated_at);
+  CREATE TABLE conversation_bots (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    PRIMARY KEY (conversation_id, bot_id)
+  );
+  CREATE TABLE attachments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name BLOB NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    author TEXT NOT NULL CHECK (author IN ('user','bot','system')),
+    user_id TEXT,
+    bot_id TEXT,
+    body BLOB NOT NULL,
+    parent_id TEXT,
+    status TEXT NOT NULL DEFAULT 'done',
+    error TEXT,
+    client_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (conversation_id, client_id)
+  );
+  CREATE INDEX messages_conv ON messages(conversation_id, created_at);
+  CREATE TABLE message_attachments (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    attachment_id TEXT NOT NULL REFERENCES attachments(id),
+    PRIMARY KEY (message_id, attachment_id)
+  );
+  CREATE TABLE reactions (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+  );
+  CREATE TABLE drafts (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    body BLOB NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, conversation_id)
+  );
+  CREATE TABLE reads (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    last_read_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, conversation_id)
+  );
+  CREATE TABLE library (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    bot_id TEXT,
+    kind TEXT NOT NULL,
+    body BLOB NOT NULL,
+    attachment_id TEXT,
+    message_id TEXT,
+    conversation_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX library_user ON library(user_id, created_at);
+  CREATE TABLE usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    bot_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX usage_user ON usage(user_id);
+  CREATE TABLE push_endpoints (
+    device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    endpoint BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE activity (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    bot_id TEXT,
+    kind TEXT NOT NULL,
+    summary BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX activity_user ON activity(user_id, created_at);
+  `,
 ];
 
 export function openDb(file: string): DB {

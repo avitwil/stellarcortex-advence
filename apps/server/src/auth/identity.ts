@@ -35,19 +35,23 @@ export class Identity {
   }
 
   getUser(id: string): User | undefined {
-    const r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+    const r = this.db.prepare('SELECT * FROM users WHERE id = ? AND removed_at IS NULL').get(id) as UserRow | undefined;
     return r ? this.toUser(r) : undefined;
   }
 
   listAllowlist() {
-    return (this.db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[]).map((r) => ({
+    return (this.db.prepare('SELECT * FROM users WHERE removed_at IS NULL ORDER BY created_at').all() as UserRow[]).map((r) => ({
       id: r.id, email: r.email, role: r.role, bound: r.google_sub !== null, createdAt: r.created_at,
     }));
   }
 
   addAllowlist(email: string): string {
     const existing = this.db.prepare('SELECT id FROM users WHERE email = ?').get(email) as { id: string } | undefined;
-    if (existing) return existing.id;
+    if (existing) {
+      // Re-adding a removed member restores their Bots and chats (nothing was deleted).
+      this.db.prepare('UPDATE users SET removed_at = NULL WHERE id = ?').run(existing.id);
+      return existing.id;
+    }
     const id = newId('usr');
     this.db.prepare("INSERT INTO users(id, email, role, created_at) VALUES(?,?,'member',?)").run(id, email.toLowerCase(), this.now());
     return id;
@@ -63,7 +67,8 @@ export class Identity {
       this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
       // Revoked devices keep their row for the audit trail but no longer point at the user.
       this.db.prepare('UPDATE devices SET user_id = NULL WHERE user_id = ?').run(userId);
-      this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      // The member's Bots and chats are kept (archived with the account), never destroyed.
+      this.db.prepare('UPDATE users SET removed_at = ?, google_sub = NULL WHERE id = ?').run(this.now(), userId);
       return devs;
     })();
     for (const d of revoked) this.onRevoke(d.id);
@@ -82,14 +87,14 @@ export class Identity {
           // Break-glass reset may have left an unbound owner row; otherwise create one.
           this.db.prepare("UPDATE users SET role='member' WHERE role='owner' AND google_sub IS NULL").run();
           // Only an unbound row may be claimed; a row bound to another Google account never is.
-          const same = this.db.prepare('SELECT id FROM users WHERE email = ? AND google_sub IS NULL').get(g.email.toLowerCase()) as { id: string } | undefined;
+          const same = this.db.prepare('SELECT id FROM users WHERE email = ? AND google_sub IS NULL AND removed_at IS NULL').get(g.email.toLowerCase()) as { id: string } | undefined;
           if (!same && this.db.prepare('SELECT 1 FROM users WHERE email = ?').get(g.email.toLowerCase())) throw new AuthError('not_allowlisted');
           const id = same?.id ?? newId('usr');
           if (same) this.db.prepare("UPDATE users SET google_sub = ?, name = ?, picture = ?, role = 'owner' WHERE id = ?").run(g.sub, g.name, g.picture ?? null, id);
           else this.db.prepare("INSERT INTO users(id, google_sub, email, name, picture, role, created_at) VALUES(?,?,?,?,?,'owner',?)").run(id, g.sub, g.email.toLowerCase(), g.name, g.picture ?? null, this.now());
           r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
         } else {
-          const pending = this.db.prepare('SELECT * FROM users WHERE email = ? AND google_sub IS NULL').get(g.email.toLowerCase()) as UserRow | undefined;
+          const pending = this.db.prepare('SELECT * FROM users WHERE email = ? AND google_sub IS NULL AND removed_at IS NULL').get(g.email.toLowerCase()) as UserRow | undefined;
           if (!pending) throw new AuthError('not_allowlisted');
           this.db.prepare('UPDATE users SET google_sub = ?, name = ?, picture = ? WHERE id = ?').run(g.sub, g.name, g.picture ?? null, pending.id);
           r = { ...pending, google_sub: g.sub, name: g.name, picture: g.picture ?? null };

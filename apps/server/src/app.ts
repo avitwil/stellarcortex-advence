@@ -1,5 +1,6 @@
 // Server assembly: boot sequence, Fastify over TLS 1.3, WebSocket gateway.
 import { RateLimiter } from './ratelimit.js';
+import { PodmanHost, type ProcessHost } from './models/host.js';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, getMeta, type DB } from './db.js';
@@ -16,6 +17,7 @@ import { WsGateway } from './ws.js';
 import type { AppContext } from './context.js';
 import type { ServerConfig } from './config.js';
 import { registerFeatures } from './features.js';
+import type { Chat } from './chat/index.js';
 
 export interface BootOptions {
   config: ServerConfig;
@@ -24,12 +26,17 @@ export interface BootOptions {
   googleEndpoints?: GoogleEndpoints;
   fetchImpl?: typeof fetch;
   logger?: Logger;
+  /** Outbound fetch for model sources and push (tests point it at local mocks). */
+  modelFetch?: typeof fetch;
+  processHost?: ProcessHost;
+  testHooks?: AppContext['testHooks'];
 }
 
 export interface Server {
   app: FastifyInstance;
   ctx: AppContext;
   ws: WsGateway;
+  chat: Chat;
   url: string;
   close(): Promise<void>;
 }
@@ -62,6 +69,9 @@ export async function boot(o: BootOptions): Promise<{ ctx: AppContext; db: DB; t
     googleEndpoints: o.googleEndpoints,
     serverName: name,
     publicLimiter: new RateLimiter(20, 60_000),
+    fetch: o.modelFetch ?? fetch,
+    processHost: o.processHost ?? new PodmanHost(),
+    testHooks: o.testHooks,
     google() {
       const id = getMeta(db, 'google.clientId');
       const secret = id ? secrets.get('google.clientSecret') : undefined;
@@ -78,7 +88,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
   const { ctx, tls } = await boot(o);
   const app = Fastify({
     logger: false,
-    bodyLimit: 30 * 1024 * 1024,
+    bodyLimit: 40 * 1024 * 1024,
     https: { key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3' },
     trustProxy: false,
     // Shutdown must not wait for clients holding keep-alive connections open.
@@ -112,7 +122,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
   ctx.identity.onRevoke = (id) => ws.closeDevice(id);
   ctx.identity.onLogout = (id) => ws.closeDevice(id, 4004, 'signed out');
   registerCoreRoutes(app, ctx);
-  await registerFeatures(app, ctx, ws);
+  const chat = await registerFeatures(app, ctx, ws);
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
 
   await app.listen({ host: o.config.host, port: o.config.port });
@@ -123,6 +133,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
     app,
     ctx,
     ws,
+    chat,
     url: `https://127.0.0.1:${port}`,
     async close() {
       ws.close();

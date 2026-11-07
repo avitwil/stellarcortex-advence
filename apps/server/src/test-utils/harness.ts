@@ -11,7 +11,7 @@ import {
   generateDeviceKey, signRequest, toB64url, randomBytes, spkiPin, sign, canonicalFrame, newNonce, utf8, type DeviceKeyPair,
   decodePairingLink, type SessionRes,
 } from '@advence/protocol';
-import { startServer, type Server } from '../app.js';
+import { startServer, type Server, type BootOptions } from '../app.js';
 import type { GoogleEndpoints } from '../auth/google.js';
 import { createLogger } from '../log.js';
 
@@ -102,7 +102,7 @@ export interface TestEnv {
   close(): Promise<void>;
 }
 
-export async function startTestServer(opts: { dataDir?: string; unlockDir?: string; google?: MockGoogle } = {}): Promise<TestEnv> {
+export async function startTestServer(opts: { dataDir?: string; unlockDir?: string; google?: MockGoogle; boot?: Partial<BootOptions> } = {}): Promise<TestEnv> {
   const dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'advence-data-'));
   const unlockDir = opts.unlockDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'advence-unlock-'));
   const google = opts.google ?? (await mockGoogle());
@@ -113,6 +113,7 @@ export async function startTestServer(opts: { dataDir?: string; unlockDir?: stri
     googleEndpoints: google.endpoints,
     fetchImpl: google.fetchImpl,
     logger: createLogger('debug', (l) => void logs.push(l)),
+    ...opts.boot,
   });
   return { server, dataDir, unlockDir, google, logs, close: () => server.close() };
 }

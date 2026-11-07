@@ -87,3 +87,32 @@ export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T>
   if (!r.success) throw new HttpError(400, 'invalid_request', r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
   return r.data;
 }
+
+export type RouteHandler = (req: import('fastify').FastifyRequest) => Promise<unknown> | unknown;
+export type RouteFn = (method: 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'PUT', url: string, level: Exclude<AuthLevel, 'device-pending'>, h: RouteHandler) => void;
+
+/** Registers authenticated JSON routes with the shared error mapping. */
+export function router(app: import('fastify').FastifyInstance, ctx: AppContext): RouteFn {
+  return (method, url, level, h) => {
+    app.route({
+      method,
+      url,
+      handler: async (req, reply) => {
+        try {
+          req.auth = authenticate(ctx, req, level);
+          const out = await h(req);
+          return reply.send(out ?? { ok: true });
+        } catch (e) {
+          return sendError(reply, e);
+        }
+      },
+    });
+  };
+}
+
+/** The signed-in user of a session-level route. */
+export function userOf(req: import('fastify').FastifyRequest): User {
+  const u = req.auth?.user;
+  if (!u) throw new AuthError('session_required');
+  return u;
+}

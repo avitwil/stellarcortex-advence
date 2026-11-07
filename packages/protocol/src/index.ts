@@ -6,4 +6,5 @@ export * from './crypto/sign.js';
 export * from './pairing.js';
 export * from './api.js';
 export * from './ws.js';
+export * from './chat.js';
 export * from './version.js';
