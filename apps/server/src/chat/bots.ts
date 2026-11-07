@@ -6,7 +6,7 @@ import { newId } from '../ids.js';
 
 interface BotRow {
   id: string; user_id: string; name: string; avatar: string; instructions: Buffer; source_id: string | null; model: string;
-  engine: Engine; tools: string; is_primary: number; proactive: number; host_control: number; notify: 'all' | 'off';
+  engine: Engine; tools: string; is_primary: number; proactive: number; paused: number; host_control: number; notify: 'all' | 'off';
   created_at: number; archived_at: number | null;
 }
 
@@ -17,7 +17,13 @@ export const PRIMARY_INSTRUCTIONS =
   'You are the user\'s chief of staff. Answer directly when you can. When another Bot is better suited, hand the task to it with the delegate tool, then summarize its result for the user.';
 
 export class Bots {
+  private listeners: ((bot: Bot) => void)[] = [];
   constructor(private ctx: AppContext) {}
+
+  /** Called after a Bot changed (P6: a pause or the proactive toggle stops its runs). */
+  onChange(fn: (bot: Bot) => void): void {
+    this.listeners.push(fn);
+  }
 
   private toApi(r: BotRow): Bot {
     return {
@@ -31,6 +37,7 @@ export class Bots {
       tools: JSON.parse(r.tools) as string[],
       primary: !!r.is_primary,
       proactive: !!r.proactive,
+      paused: !!r.paused,
       hostControl: !!r.host_control,
       notify: r.notify,
       createdAt: r.created_at,
@@ -88,7 +95,7 @@ export class Bots {
     return this.get(id)!;
   }
 
-  update(user: User, id: string, b: Partial<{ name: string; avatar: string; instructions: string; sourceId: string | null; model: string; engine: Engine; tools: string[]; proactive: boolean; hostControl: boolean; notify: 'all' | 'off' }>): Bot {
+  update(user: User, id: string, b: Partial<{ name: string; avatar: string; instructions: string; sourceId: string | null; model: string; engine: Engine; tools: string[]; proactive: boolean; paused: boolean; hostControl: boolean; notify: 'all' | 'off' }>): Bot {
     this.owned(user, id);
     if (b.sourceId !== undefined) this.checkSource(user, b.sourceId);
     // Host control drives the server's own desktop: only the server owner may turn it on (D-12).
@@ -107,10 +114,13 @@ export class Bots {
     if (b.engine !== undefined) put('engine', b.engine);
     if (b.tools !== undefined) put('tools', JSON.stringify(b.tools));
     if (b.proactive !== undefined) put('proactive', b.proactive ? 1 : 0);
+    if (b.paused !== undefined) put('paused', b.paused ? 1 : 0);
     if (b.hostControl !== undefined) put('host_control', b.hostControl ? 1 : 0);
     if (b.notify !== undefined) put('notify', b.notify);
     if (set.length) this.ctx.db.prepare(`UPDATE bots SET ${set.join(', ')} WHERE id = ?`).run(...vals, id);
-    return this.get(id)!;
+    const bot = this.get(id)!;
+    for (const fn of this.listeners) fn(bot);
+    return bot;
   }
 
   /** Deleting archives the Bot; its chats and data are kept, never destroyed (FR-BOT-01). */

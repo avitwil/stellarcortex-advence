@@ -60,6 +60,7 @@ export interface Server {
   memory: MemoryServices;
   mcp: McpServices;
   google: GoogleServices;
+  proactive: import('./proactive/engine.js').Proactivity;
   url: string;
   close(): Promise<void>;
 }
@@ -146,7 +147,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
   ctx.identity.onLogout = (id) => ws.closeDevice(id, 4004, 'signed out');
   registerCoreRoutes(app, ctx);
   const runtime = o.containerRuntime ?? (o.processHost ? new NoRuntime() : new PodmanRuntime());
-  const { chat, computers, memory, mcp, google } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources, mcpFetch: o.mcpFetch, googleApiFetch: o.googleApiFetch, googleApiBases: o.googleApiBases });
+  const { chat, computers, memory, mcp, google, proactive } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources, mcpFetch: o.mcpFetch, googleApiFetch: o.googleApiFetch, googleApiBases: o.googleApiBases });
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
   guardContainerPeers(app.server, () => ctx.log.warn('refused a connection from a Bot computer'));
 
@@ -163,6 +164,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
     memory,
     mcp,
     google,
+    proactive,
     url: `https://127.0.0.1:${port}`,
     async close() {
       ws.close();

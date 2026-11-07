@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { Bot, User } from '@advence/protocol';
 import type { AppContext } from '../context.js';
 import type { ModelMessage, ToolCall, ToolSpec } from '../models/types.js';
-import type { ToolCtx, ToolProvider } from '../chat/runtime.js';
+import type { ToolCtx, ToolProvider, ToolTraits } from '../chat/runtime.js';
 import type { Activity } from '../chat/activity.js';
 import type { ComputerManager } from '../computer/manager.js';
 import { HttpError } from '../http.js';
@@ -280,6 +280,12 @@ export class Skills implements ToolProvider {
 
   handles(name: string): boolean {
     return (SKILL_TOOLS as readonly string[]).includes(name);
+  }
+
+  /** skill_run executes a skill's scripts in the Bot's computer; their output is work content. */
+  traits(name: string): ToolTraits {
+    if (name === 'skill_run') return { readOnly: false, taint: 'work', work: true };
+    return { readOnly: name === 'skill_view', taint: 'none' };
   }
 
   system(user: User, bot: Bot): string | null {

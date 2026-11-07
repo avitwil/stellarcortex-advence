@@ -13,7 +13,7 @@ import type { ComputerManager } from '../computer/manager.js';
 import type { ChatStore } from './store.js';
 import type { UsageLog } from './usage.js';
 import type { Activity } from './activity.js';
-import type { ToolProvider } from './runtime.js';
+import type { ToolProvider, ToolTraits } from './runtime.js';
 
 const CodeInput = z.object({ task: z.string().min(1).max(100_000) });
 export const WORKSPACE = '/home/bot/workspace';
@@ -64,6 +64,11 @@ export class BotTools implements ToolProvider {
 
   handles(name: string): boolean {
     return name === 'code' || name === 'computer' || name === 'host';
+  }
+
+  /** Work surfaces: what the engine and the screens show is work content (repositories, web pages). */
+  traits(): ToolTraits {
+    return { readOnly: false, taint: 'work', work: true };
   }
 
   async run(c: CallCtx, call: ToolCall): Promise<ModelMessage> {

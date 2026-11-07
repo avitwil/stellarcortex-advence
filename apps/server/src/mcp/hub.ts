@@ -12,7 +12,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { Bot, McpAuthFinish, McpServer, McpServerCreate, McpServerPatch, McpToolInfo, User } from '@advence/protocol';
 import type { AppContext } from '../context.js';
 import type { Bots } from '../chat/bots.js';
-import type { ToolCtx, ToolProvider } from '../chat/runtime.js';
+import type { ToolCtx, ToolProvider, ToolTraits } from '../chat/runtime.js';
 import type { ComputerManager } from '../computer/manager.js';
 import type { ModelMessage, ToolCall, ToolSpec } from '../models/types.js';
 import { HttpError } from '../http.js';
@@ -56,6 +56,8 @@ interface Conn {
   prompts: number;
   /** the last call in flight, to place pushed elicitations that arrive outside its async context */
   active: CallScope | null;
+  /** P6: routines waiting for resource changes on this connection; a watched connection is kept open */
+  watchers?: Set<(uri: string) => void>;
 }
 
 interface CallScope { userId: string; botId: string | null; convId: string | null; signal?: AbortSignal }
@@ -79,6 +81,8 @@ export function toolName(server: string, tool: string): string {
   const slug = (s: string, n: number) => s.normalize('NFKD').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, n) || 'x';
   return `mcp_${slug(server, 16)}_${slug(tool, 40)}`.slice(0, 64);
 }
+
+const META_TOOLS = ['mcp_resources', 'mcp_read_resource', 'mcp_prompts', 'mcp_get_prompt'];
 
 /** Where a task handle is kept on a tools/call result once it has passed the SDK's decoder. */
 const TASK_META = 'advence/task';
@@ -127,7 +131,7 @@ export class McpHub implements ToolProvider {
   readonly inputs: InputBroker;
   private conns = new Map<string, Conn>();
   private status = new Map<string, Status>();
-  private names = new Map<string, Map<string, { serverId: string; tool: string }>>();
+  private names = new Map<string, Map<string, { serverId: string; tool: string; readOnly: boolean }>>();
   private als = new AsyncLocalStorage<CallScope>();
   /** sign-ins since the server last accepted a request */
   private reauths = new Map<string, number>();
@@ -299,6 +303,10 @@ export class McpHub implements ToolProvider {
       const a = await this.inputs.ask({ userId: scope.userId, serverId, serverName, botId: scope.botId, convId: scope.convId }, p, scope.signal);
       return a.action === 'accept' && a.content ? { action: 'accept' as const, content: a.content as Record<string, string | number | boolean | string[]> } : { action: a.action };
     });
+    client.setNotificationHandler('notifications/resources/updated', (n) => {
+      const uri = String((n.params as { uri?: unknown } | undefined)?.uri ?? '');
+      for (const w of this.conns.get(key)?.watchers ?? []) w(uri);
+    });
     try {
       client.setNotificationHandler('notifications/tools/list_changed', () => {
         const c = this.conns.get(key);
@@ -369,7 +377,7 @@ export class McpHub implements ToolProvider {
   private reap(): void {
     const now = Date.now();
     for (const [k, c] of this.conns) {
-      if (now - c.lastUsed > IDLE_MS && !c.active) {
+      if (now - c.lastUsed > IDLE_MS && !c.active && !c.watchers?.size) {
         this.conns.delete(k);
         void c.client.close().catch(() => undefined);
       }
@@ -488,6 +496,48 @@ export class McpHub implements ToolProvider {
     return this.get(user, id);
   }
 
+  // ------------------------------------------------------------------ routine triggers (P6)
+
+  /**
+   * Calls `onUpdate` whenever the server says the resource changed (FR-PRO-02 MCP trigger):
+   * `subscriptions/listen` on 2026-07-28, `resources/subscribe` on 2025-11-25. Resolves with a
+   * handle to stop watching and to tell whether the watch is still alive.
+   */
+  async watch(user: User, serverId: string, botId: string, uri: string, onUpdate: () => void): Promise<{ stop(): Promise<void>; alive(): boolean }> {
+    const r = this.row(user, serverId);
+    const c = this.config(r);
+    if (r.enabled !== 1) throw new HttpError(409, 'mcp_server_disabled');
+    const bot = c.transport === 'stdio' ? this.bots.owned(user, botId) : null;
+    const conn = await this.conn(user, r, c, bot);
+    const fn = (u: string) => {
+      if (u === uri) onUpdate();
+    };
+    (conn.watchers ??= new Set()).add(fn);
+    let stopSub: () => Promise<unknown>;
+    let ended = false;
+    try {
+      if (conn.client.getProtocolEra() === 'modern') {
+        const sub = await conn.client.listen({ resourceSubscriptions: [uri] });
+        void sub.closed.then(() => (ended = true));
+        stopSub = () => sub.close();
+      } else {
+        await conn.client.subscribeResource({ uri });
+        stopSub = () => conn.client.unsubscribeResource({ uri });
+      }
+    } catch (e) {
+      conn.watchers.delete(fn);
+      throw e;
+    }
+    const key = this.key(r.id, c, bot?.id ?? null);
+    return {
+      alive: () => !ended && this.conns.get(key) === conn,
+      stop: async () => {
+        conn.watchers?.delete(fn);
+        await stopSub().catch(() => undefined);
+      },
+    };
+  }
+
   // ------------------------------------------------------------------ tools for Bots
 
   private enabledFor(user: User, bot: Bot): { r: Row; c: Config }[] {
@@ -527,7 +577,7 @@ export class McpHub implements ToolProvider {
 
   specs(user: User, bot: Bot): ToolSpec[] {
     const out: ToolSpec[] = [];
-    const names = new Map<string, { serverId: string; tool: string }>();
+    const names = new Map<string, { serverId: string; tool: string; readOnly: boolean }>();
     let withResources = false;
     let withPrompts = false;
     for (const { r, c } of this.enabledFor(user, bot)) {
@@ -539,7 +589,7 @@ export class McpHub implements ToolProvider {
         if (!this.allowed(c, t.name)) continue;
         let n = toolName(c.name, t.name);
         for (let i = 2; names.has(n); i++) n = `${n.slice(0, 60)}_${i}`;
-        names.set(n, { serverId: r.id, tool: t.name });
+        names.set(n, { serverId: r.id, tool: t.name, readOnly: (t as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint === true });
         const schema = t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : { type: 'object', properties: {} };
         out.push({ name: n, description: `[MCP: ${c.name}] ${(t.description ?? t.title ?? t.name).slice(0, 1000)}`, parameters: schema });
       }
@@ -558,6 +608,12 @@ export class McpHub implements ToolProvider {
 
   handles(name: string): boolean {
     return name.startsWith('mcp_');
+  }
+
+  /** Everything an MCP server returns is outside content; tools it marks read-only change nothing. */
+  traits(name: string, user: User, bot: Bot): ToolTraits {
+    if (META_TOOLS.includes(name)) return { readOnly: true, taint: 'outside' };
+    return { readOnly: this.names.get(`${user.id}:${bot.id}`)?.get(name)?.readOnly === true, taint: 'outside' };
   }
 
   system(user: User, bot: Bot): string | null {
@@ -579,7 +635,7 @@ export class McpHub implements ToolProvider {
     const input = (call.input ?? {}) as Record<string, unknown>;
     const scope: CallScope = { userId: c.user.id, botId: c.bot.id, convId: c.convId || null, signal: c.signal };
     try {
-      if (['mcp_resources', 'mcp_read_resource', 'mcp_prompts', 'mcp_get_prompt'].includes(call.name)) return await this.als.run(scope, () => this.runMeta(c, call.name, input, ok));
+      if (META_TOOLS.includes(call.name)) return await this.als.run(scope, () => this.runMeta(c, call.name, input, ok));
       const target = this.names.get(`${c.user.id}:${c.bot.id}`)?.get(call.name);
       if (!target) return fail(`Unknown tool ${call.name}.`);
       const r = this.row(c.user, target.serverId);

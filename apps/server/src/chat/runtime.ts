@@ -42,7 +42,36 @@ export interface ToolProvider {
   system?(user: User, bot: Bot): string | null;
   /** loads what specs() needs (P5: MCP tool lists); errors are the provider's own to report */
   prepare?(user: User, bot: Bot, signal: AbortSignal): Promise<void>;
+  /** NFR-SEC-11: what the tool does and what its result brings in; unknown tools act and bring nothing. */
+  traits?(name: string, user: User, bot: Bot): ToolTraits | null;
 }
+
+/**
+ * Taint levels (NFR-SEC-11, DL-060). `work`: what the Bot sees while working in its own computer,
+ * the coding engine or the host desktop (web pages, repositories). `outside`: content that arrives
+ * through the user's accounts and services (mail, calendar, Drive, contacts, MCP, triggers).
+ */
+export type Taint = 'none' | 'work' | 'outside';
+export const TAINT_RANK: Record<Taint, number> = { none: 0, work: 1, outside: 2 };
+
+/**
+ * readOnly: changes nothing anywhere. taint: what its result brings into the reply. work: acts only
+ * on the work surfaces (Bot computer, engine, host), so `work` taint does not hold it.
+ */
+export interface ToolTraits { readOnly: boolean; taint: Taint; work?: boolean }
+
+/** P6: proactivity decides whether a Bot may act on outside content, and holds what it may not. */
+export interface AutonomyPolicy {
+  /** proactive and not paused (Bot or user): may act on outside content with no approval (D-19) */
+  autonomous(user: User, bot: Bot): boolean;
+  /** keeps a call for the user's approval; returns what the model is told */
+  hold(user: User, bot: Bot, convId: string, call: ToolCall): string;
+  /** each tool call of an autonomous run, for the activity log (FR-PRO-05) */
+  acted?(user: User, bot: Bot, run: AutoRun, call: ToolCall, result: ModelMessage): void;
+}
+
+/** An autonomous run started by a trigger or a suggestion (FR-PRO-03). */
+export interface AutoRun { id: string; routine: string; trigger: string }
 
 export interface ReplyInfo { user: User; bot: Bot; convId: string; replyId: string; toolCalls: ToolCall[] }
 export interface ReplyObserver { afterReply(info: ReplyInfo): void }
@@ -101,11 +130,20 @@ interface RunOpts {
   hop: number;
   depth: number;
   signal?: AbortSignal;
+  auto?: AutoRun;
 }
+
+const BUILTIN_TRAITS: ToolTraits = { readOnly: false, taint: 'none' };
+
+interface TaintState { level: Taint }
+const raise = (t: TaintState, to: Taint) => {
+  if (TAINT_RANK[to] > TAINT_RANK[t.level]) t.level = to;
+};
 
 export class ChatRuntime {
   private running = new Map<string, { userId: string; ac: AbortController }>();
   private pending = new Set<Promise<unknown>>();
+  private policy: AutonomyPolicy | null = null;
 
   constructor(private ctx: AppContext, private s: ChatServices) {}
 
@@ -116,6 +154,19 @@ export class ChatRuntime {
 
   observe(o: ReplyObserver): void {
     (this.s.observers ??= []).push(o);
+  }
+
+  setAutonomy(p: AutonomyPolicy): void {
+    this.policy = p;
+  }
+
+  private autonomous(user: User, bot: Bot): boolean {
+    return this.policy ? this.policy.autonomous(user, bot) : bot.proactive && !bot.paused;
+  }
+
+  toolTraits(name: string, user: User, bot: Bot): ToolTraits {
+    for (const p of this.s.providers ?? []) if (p.handles(name)) return p.traits?.(name, user, bot) ?? BUILTIN_TRAITS;
+    return BUILTIN_TRAITS;
   }
 
   /** Posts the user's message and starts the replies. Retrying with the same clientId is a no-op. */
@@ -184,7 +235,7 @@ export class ChatRuntime {
   }
 
   /** Runs one Bot's reply in a chat; returns its final text (for delegation). */
-  async respond(user: User, bot: Bot, convId: string, parentId: string | null, o: RunOpts): Promise<{ text: string; ok: boolean }> {
+  async respond(user: User, bot: Bot, convId: string, parentId: string | null, o: RunOpts): Promise<{ text: string; ok: boolean; tainted: Taint; messageId: string }> {
     const { store } = this.s;
     const placeholder = store.insertMessage({ convId, author: 'bot', botId: bot.id, text: '', parentId, status: 'streaming' });
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageCreated, store.toMessage(placeholder, user.id));
@@ -198,13 +249,14 @@ export class ChatRuntime {
     };
     let final: MsgRow;
     const toolCalls: ToolCall[] = [];
+    const taint: TaintState = { level: 'none' };
     try {
-      await this.runModel(user, bot, convId, parentId, placeholder.id, o, signal, emit, toolCalls);
+      await this.runModel(user, bot, convId, parentId, placeholder.id, o, signal, emit, toolCalls, taint);
       if (!text.trim()) throw new ProviderError('failed', 'empty reply');
-      final = store.finishMessage(placeholder.id, text, 'done');
+      final = store.finishMessage(placeholder.id, text, 'done', null, taint.level);
     } catch (e) {
       const code = signal.aborted ? 'stopped' : errorCode(e);
-      final = store.finishMessage(placeholder.id, text, 'error', code);
+      final = store.finishMessage(placeholder.id, text, 'error', code, taint.level);
       if (code !== 'stopped') {
         this.ctx.log.warn({ bot: bot.id, code }, 'bot reply failed');
         this.s.activity.log(user.id, bot.id, 'reply.error', { bot: bot.name, code });
@@ -215,7 +267,7 @@ export class ChatRuntime {
     this.s.search.put(user.id, final);
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageDone, store.toMessage(final, user.id));
     this.publishConversation(user, convId);
-    if (final.status !== 'done') return { text, ok: false };
+    if (final.status !== 'done') return { text, ok: false, tainted: taint.level, messageId: final.id };
 
     this.s.library.fromReply(user.id, bot.id, convId, final.id, text, store.attachmentsOf(final.id));
     for (const ob of this.s.observers ?? []) {
@@ -226,6 +278,7 @@ export class ChatRuntime {
       }
     }
     if (bot.notify === 'all') void this.s.push.wake(user.id, final.id);
+    if (o.auto) return { text, ok: true, tainted: taint.level, messageId: final.id };
 
     // Group hand-off: Bots this reply mentions take the next turn (FR-BOT-03).
     if (store.kind(convId) === 'group' && o.hop < MAX_HANDOFF_HOPS) {
@@ -241,14 +294,14 @@ export class ChatRuntime {
         }
       }
     }
-    return { text, ok: true };
+    return { text, ok: true, tainted: taint.level, messageId: final.id };
   }
 
-  private async runModel(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string, o: RunOpts, signal: AbortSignal, emit: (t: string) => void, calls?: ToolCall[]): Promise<void> {
+  private async runModel(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string, o: RunOpts, signal: AbortSignal, emit: (t: string) => void, calls: ToolCall[], taint: TaintState): Promise<void> {
     if (!bot.sourceId) throw new HttpError(409, 'no_model_source');
     const { provider, kind } = this.s.sources.provider(user, bot.id, bot.sourceId);
     const model = bot.model || defaultModel(kind) || (await this.firstModel(provider, signal));
-    const messages = this.context(user, bot, convId, parentId, selfId);
+    const messages = this.context(user, bot, convId, parentId, selfId, taint);
     if (!messages.length) throw new HttpError(409, 'nothing_to_answer');
     const delegates = bot.tools.includes('delegate') && o.depth < MAX_DELEGATION_DEPTH ? this.s.bots.list(user).filter((b) => b.id !== bot.id) : [];
     await Promise.all((this.s.providers ?? []).map((p) => p.prepare?.(user, bot, signal).catch(() => undefined)));
@@ -268,9 +321,32 @@ export class ChatRuntime {
         }]);
     const system = this.system(user, bot, convId, delegates);
     await this.loop({ user, bot, kind, provider, model, system, messages, tools, signal, emit }, async (call) => {
-      calls?.push(call);
-      return this.runTool(user, bot, call, delegates, o, signal, convId, selfId);
+      calls.push(call);
+      const autonomous = this.autonomous(user, bot);
+      // FR-PRO-06: a paused autonomous run stops before its next action.
+      if (o.auto && !autonomous) throw new ProviderError('failed', 'stopped');
+      const t = call.name === 'delegate' ? BUILTIN_TRAITS : this.toolTraits(call.name, user, bot);
+      // NFR-SEC-11: once outside content is in the reply, a Bot that may not act on it can only
+      // read; any other call waits for the user's approval. Content seen while working only lets
+      // the work continue on the same surfaces. Enforced here, not by prompt.
+      const held = !autonomous && !t.readOnly && (taint.level === 'outside' || (taint.level === 'work' && !t.work));
+      if (held) {
+        const said = this.policy?.hold(user, bot, convId, call) ?? 'This action was blocked: outside content cannot start actions for this Bot.';
+        this.s.activity.log(user.id, bot.id, 'action.held', { bot: bot.name, tool: call.name });
+        return { role: 'tool', toolCallId: call.id, content: said, isError: true };
+      }
+      const result = await this.runTool(user, bot, call, delegates, o, signal, convId, selfId, taint);
+      raise(taint, t.taint);
+      if (o.auto) this.policy?.acted?.(user, bot, o.auto, call, result);
+      return result;
     });
+  }
+
+  /** Runs one tool call outside the model loop (an action the user allowed). */
+  async execTool(user: User, bot: Bot, convId: string, call: ToolCall, signal: AbortSignal): Promise<ModelMessage> {
+    const delegates = bot.tools.includes('delegate') ? this.s.bots.list(user).filter((b) => b.id !== bot.id) : [];
+    await Promise.all((this.s.providers ?? []).map((p) => p.prepare?.(user, bot, signal).catch(() => undefined)));
+    return this.runTool(user, bot, call, delegates, { hop: 0, depth: 0, signal }, signal, convId, '', { level: 'none' });
   }
 
   /** The model/tool loop shared by chat replies and background runs. */
@@ -338,7 +414,7 @@ export class ChatRuntime {
     return models[0];
   }
 
-  private async runTool(user: User, bot: Bot, call: ToolCall, delegates: Bot[], o: RunOpts, signal: AbortSignal, convId: string, selfId: string): Promise<ModelMessage> {
+  private async runTool(user: User, bot: Bot, call: ToolCall, delegates: Bot[], o: RunOpts, signal: AbortSignal, convId: string, selfId: string, taint: TaintState): Promise<ModelMessage> {
     const fail = (content: string): ModelMessage => ({ role: 'tool', toolCallId: call.id, content, isError: true });
     const provider = (this.s.providers ?? []).find((p) => p.handles(call.name));
     if (provider) return provider.run({ user, bot, convId, messageId: selfId, signal }, call);
@@ -350,11 +426,12 @@ export class ChatRuntime {
     if (!target) return fail(`No Bot named "${p.data.bot}". Available: ${delegates.map((b) => b.name).join(', ')}.`);
     // The hand-off is visible in the target Bot's own chat (FR-BOT-02).
     const conv = this.s.store.direct(user, target.id, target.name);
-    const task = this.s.store.insertMessage({ convId: conv, author: 'system', text: `${bot.name}: ${p.data.task}` });
+    const task = this.s.store.insertMessage({ convId: conv, author: 'system', text: `${bot.name}: ${p.data.task}`, tainted: taint.level });
     this.s.search.put(user.id, task);
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageCreated, this.s.store.toMessage(task, user.id));
     this.s.activity.log(user.id, bot.id, 'delegate', { bot: bot.name, target: target.name });
-    const r = await this.respond(user, target, conv, null, { hop: 0, depth: o.depth + 1, signal });
+    const r = await this.respond(user, target, conv, null, { hop: 0, depth: o.depth + 1, signal, ...(o.auto ? { auto: o.auto } : {}) });
+    raise(taint, r.tainted);
     if (!r.ok) return fail(`${target.name} could not finish the task.`);
     return { role: 'tool', toolCallId: call.id, content: r.text.slice(0, 50_000) };
   }
@@ -380,11 +457,15 @@ export class ChatRuntime {
   }
 
   /** The conversation as model messages: this Bot's replies are the assistant side. */
-  private context(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string): ModelMessage[] {
-    const rows = this.s.store.contextRows(convId, parentId, CONTEXT_MESSAGES).filter((r) => r.id !== selfId && r.status === 'done');
+  private context(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string, taint: TaintState): ModelMessage[] {
+    const rows = this.s.store.contextRows(convId, parentId, CONTEXT_MESSAGES).filter((r) => r.id !== selfId && (r.status === 'done' || r.status === 'error'));
     const out: ModelMessage[] = [];
     for (const r of rows) {
-      const text = this.s.store.body(r).text;
+      const body = this.s.store.body(r);
+      // Outside content anywhere in what the model reads taints the reply (NFR-SEC-11).
+      if (body.tainted) raise(taint, body.tainted === 'work' ? 'work' : 'outside');
+      if (r.status !== 'done') continue;
+      const text = body.text;
       if (r.author === 'bot' && r.bot_id === bot.id) {
         const last = out[out.length - 1];
         if (last?.role === 'assistant') last.text += `\n\n${text}`;

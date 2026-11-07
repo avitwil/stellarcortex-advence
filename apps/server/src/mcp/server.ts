@@ -89,7 +89,7 @@ async function messageBot(ctx: AppContext, chat: Chat, user: User, botRef: strin
   });
 }
 
-function buildServer(ctx: AppContext, chat: Chat, user: User, routines: () => Routine[]): McpServer {
+function buildServer(ctx: AppContext, chat: Chat, user: User, routines: (user: User) => Routine[]): McpServer {
   const server = new McpServer({ name: 'stellarcortex-advence', version: '1.0.0' }, { instructions: 'Message the owner\'s Bots, list routines and read the Library of StellarCortex Advence.' });
   server.registerTool('list_bots', { description: 'List the Bots you can message.', inputSchema: z.object({}) }, async () => {
     const bots = chat.bots.list(user).map((b) => ({ id: b.id, name: b.name, primary: b.primary, proactive: b.proactive }));
@@ -109,7 +109,7 @@ function buildServer(ctx: AppContext, chat: Chat, user: User, routines: () => Ro
     },
   );
   server.registerTool('list_routines', { description: 'List the routines your Bots run.', inputSchema: z.object({}) }, async () => {
-    const list = routines();
+    const list = routines(user);
     return { ...text(list.length ? JSON.stringify(list, null, 2) : 'No routines yet.'), structuredContent: { routines: list } };
   });
   server.registerTool(
@@ -126,7 +126,7 @@ function buildServer(ctx: AppContext, chat: Chat, user: User, routines: () => Ro
 }
 
 /** Registers /mcp. Requests carrying an Origin header (browsers) are refused (DNS rebinding). */
-export function registerMcpServer(app: FastifyInstance, ctx: AppContext, chat: Chat, tokens: McpTokens, routines: () => Routine[] = () => []): () => Promise<void> {
+export function registerMcpServer(app: FastifyInstance, ctx: AppContext, chat: Chat, tokens: McpTokens, routines: (user: User) => Routine[] = () => []): () => Promise<void> {
   const handlers = new Map<string, ReturnType<typeof createMcpHandler>>();
   const handlerFor = (user: User) => {
     let h = handlers.get(user.id);

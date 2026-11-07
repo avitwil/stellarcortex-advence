@@ -3,7 +3,7 @@
 // user's own Google grant; a tool appears only for a service the user granted and while the grant
 // is valid. Requests go to Google's REST APIs with the access token in the Authorization header.
 import type { Bot, GoogleService, User } from '@advence/protocol';
-import type { ToolCtx, ToolProvider } from '../chat/runtime.js';
+import type { ToolCtx, ToolProvider, ToolTraits } from '../chat/runtime.js';
 import type { ModelMessage, ToolCall, ToolSpec } from '../models/types.js';
 import { GoogleReconnectNeeded, type GoogleConnections } from './connections.js';
 
@@ -14,6 +14,8 @@ export interface GoogleApiBases {
   driveUpload: string;
   people: string;
 }
+
+const READ_TOOLS = new Set(['google_gmail_search', 'google_gmail_read', 'google_calendar_events', 'google_drive_search', 'google_drive_read', 'google_contacts_search']);
 
 export const GOOGLE_API: GoogleApiBases = {
   gmail: 'https://gmail.googleapis.com/gmail/v1',
@@ -294,11 +296,49 @@ export class GoogleTools implements ToolProvider {
     return name in this.defs;
   }
 
+  /** Reading mail, events, files and contacts brings in outside content and changes nothing. */
+  traits(name: string): ToolTraits {
+    return READ_TOOLS.has(name) ? { readOnly: true, taint: 'outside' } : { readOnly: false, taint: 'none' };
+  }
+
   system(user: User, _bot: Bot): string | null {
     const c = this.conns.get(user);
     if (c.state === 'none') return null;
     if (c.state === 'reconnect') return 'The user\'s Google connection has expired. Google tools are unavailable until the user reconnects Google in Settings; say so if a task needs mail, calendar, Drive or contacts.';
     return `You can use the user's Google account (${c.email}): ${c.services.join(', ')}. Send mail, create events with attendees or upload files only when the user asked for it or a routine says so.`;
+  }
+
+  // ---- for routine triggers (FR-PRO-02)
+
+  /** Gmail messages matching the filter, newest first (ids and headers). */
+  async mailSince(user: User, filter: string, signal: AbortSignal): Promise<{ id: string; from: string; subject: string }[]> {
+    const g = (p: string) => `${this.base.gmail}/users/me${p}`;
+    const q = new URLSearchParams({ q: `${filter} in:inbox newer_than:2d`.trim(), maxResults: '20' });
+    const list = await this.api(user, g(`/messages?${q}`), {}, signal);
+    const ids = ((list.messages ?? []) as { id: string }[]).map((m) => m.id);
+    return Promise.all(ids.map(async (id) => {
+      const m = await this.api(user, g(`/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`), {}, signal);
+      return { id, from: header(m, 'From'), subject: header(m, 'Subject') };
+    }));
+  }
+
+  /** Calendar events that start between now and `minutes` from now. */
+  async eventsSoon(user: User, minutes: number, signal: AbortSignal, now = Date.now()): Promise<{ id: string; summary: string; start: string }[]> {
+    const q = new URLSearchParams({ timeMin: new Date(now).toISOString(), timeMax: new Date(now + minutes * 60_000).toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '20' });
+    const r = await this.api(user, `${this.base.calendar}/calendars/primary/events?${q}`, {}, signal);
+    return ((r.items ?? []) as Json[]).map((e) => ({ id: String(e.id), summary: String(e.summary ?? '(no title)'), start: String(e.start?.dateTime ?? e.start?.date ?? '') }));
+  }
+
+  /** Drive files whose name contains the filter, with their change times. */
+  async driveFiles(user: User, nameFilter: string, signal: AbortSignal): Promise<{ id: string; name: string; modifiedTime: string }[]> {
+    const q = new URLSearchParams({ q: nameFilter ? driveQuery(nameFilter) : 'trashed = false', pageSize: '50', orderBy: 'modifiedTime desc', fields: 'files(id,name,modifiedTime)' });
+    const r = await this.api(user, `${this.base.drive}/files?${q}`, {}, signal);
+    return ((r.files ?? []) as Json[]).map((f) => ({ id: String(f.id), name: String(f.name), modifiedTime: String(f.modifiedTime ?? '') }));
+  }
+
+  /** The text a read tool would give the Bot (a message's headers and body). */
+  async readText(user: User, name: 'google_gmail_read', input: Json, signal: AbortSignal): Promise<string> {
+    return this.defs[name]!.run(user, input, signal);
   }
 
   async run(c: ToolCtx, call: ToolCall): Promise<ModelMessage> {

@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { Bot, User } from '@advence/protocol';
 import type { AppContext } from '../context.js';
 import type { ModelMessage, ToolCall, ToolSpec } from '../models/types.js';
-import type { ToolCtx, ToolProvider } from '../chat/runtime.js';
+import type { ToolCtx, ToolProvider, ToolTraits } from '../chat/runtime.js';
 import type { Activity } from '../chat/activity.js';
 import { Vault } from './vault.js';
 import { MemoryIndex, type Hit } from './search.js';
@@ -166,6 +166,10 @@ export class Memory implements ToolProvider {
 
   handles(name: string): boolean {
     return (MEMORY_TOOLS as readonly string[]).includes(name);
+  }
+
+  traits(name: string): ToolTraits {
+    return { readOnly: name === 'memory_search' || name === 'memory_read', taint: 'none' };
   }
 
   system(user: User, bot: Bot): string {

@@ -58,6 +58,8 @@ export const Bot = z.object({
   tools: z.array(z.string()),
   primary: z.boolean(),
   proactive: z.boolean(),
+  /** per-Bot pause of proactivity (FR-PRO-06) */
+  paused: z.boolean(),
   hostControl: z.boolean(),
   notify: z.enum(['all', 'off']),
   createdAt: z.number(),
@@ -82,6 +84,7 @@ export const CreateBotReq = z.object({
 });
 export const UpdateBotReq = CreateBotReq.partial().extend({
   proactive: z.boolean().optional(),
+  paused: z.boolean().optional(),
   hostControl: z.boolean().optional(),
   notify: z.enum(['all', 'off']).optional(),
 });

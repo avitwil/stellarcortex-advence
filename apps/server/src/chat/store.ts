@@ -14,7 +14,8 @@ export interface MsgRow {
   body: Buffer; parent_id: string | null; status: 'done' | 'streaming' | 'error'; error: string | null; client_id: string | null;
   created_at: number; updated_at: number; steps: Buffer | null;
 }
-interface Body { text: string; mentions: string[] }
+/** tainted: holds or was written from outside content (mail, web, MCP, triggers; NFR-SEC-11) */
+interface Body { text: string; mentions: string[]; tainted?: 'work' | 'outside' | true }
 
 /** One line of plain text for the conversation list: markdown links, emphasis and code marks removed. */
 export function previewOf(text: string): string {
@@ -191,7 +192,7 @@ export class ChatStore {
     return rows.reverse();
   }
 
-  insertMessage(m: { convId: string; author: 'user' | 'bot' | 'system'; userId?: string | null; botId?: string | null; text: string; mentions?: string[]; parentId?: string | null; status?: 'done' | 'streaming'; clientId?: string | null; attachmentIds?: string[] }): MsgRow {
+  insertMessage(m: { convId: string; author: 'user' | 'bot' | 'system'; userId?: string | null; botId?: string | null; text: string; mentions?: string[]; parentId?: string | null; status?: 'done' | 'streaming'; clientId?: string | null; attachmentIds?: string[]; tainted?: 'none' | 'work' | 'outside' }): MsgRow {
     const id = newId('msg');
     // Strictly increasing timestamps keep ordering stable within one millisecond.
     const last = (this.ctx.db.prepare('SELECT MAX(created_at) t FROM messages WHERE conversation_id = ?').get(m.convId) as { t: number | null }).t ?? 0;
@@ -199,7 +200,7 @@ export class ChatStore {
     this.ctx.db.transaction(() => {
       this.ctx.db
         .prepare('INSERT INTO messages(id, conversation_id, author, user_id, bot_id, body, parent_id, status, client_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, m.convId, m.author, m.userId ?? null, m.botId ?? null, this.seal(id, { text: m.text, mentions: m.mentions ?? [] }), m.parentId ?? null, m.status ?? 'done', m.clientId ?? null, now, now);
+        .run(id, m.convId, m.author, m.userId ?? null, m.botId ?? null, this.seal(id, { text: m.text, mentions: m.mentions ?? [], ...(m.tainted && m.tainted !== 'none' ? { tainted: m.tainted } : {}) }), m.parentId ?? null, m.status ?? 'done', m.clientId ?? null, now, now);
       for (const a of m.attachmentIds ?? []) this.ctx.db.prepare('INSERT INTO message_attachments(message_id, attachment_id) VALUES(?,?)').run(id, a);
     })();
     this.touch(m.convId, now);
@@ -210,10 +211,10 @@ export class ChatStore {
     return this.ctx.db.prepare('SELECT * FROM messages WHERE conversation_id = ? AND client_id = ?').get(convId, clientId) as MsgRow | undefined;
   }
 
-  finishMessage(id: string, text: string, status: 'done' | 'error', error: string | null = null): MsgRow {
+  finishMessage(id: string, text: string, status: 'done' | 'error', error: string | null = null, tainted: 'none' | 'work' | 'outside' = 'none'): MsgRow {
     const r = this.msgRow(id)!;
     const b = this.body(r);
-    this.ctx.db.prepare('UPDATE messages SET body = ?, status = ?, error = ?, updated_at = ? WHERE id = ?').run(this.seal(id, { ...b, text }), status, error, Date.now(), id);
+    this.ctx.db.prepare('UPDATE messages SET body = ?, status = ?, error = ?, updated_at = ? WHERE id = ?').run(this.seal(id, { ...b, text, ...(tainted !== 'none' ? { tainted } : {}) }), status, error, Date.now(), id);
     return this.msgRow(id)!;
   }
 

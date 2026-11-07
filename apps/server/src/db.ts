@@ -280,6 +280,59 @@ const MIGRATIONS: string[] = [
     reminded_at INTEGER
   );
   `,
+  // P6: proactive Bots (FR-PRO-*, FR-UI-06, NFR-SEC-11).
+  `
+  ALTER TABLE bots ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE routines (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    bot_id TEXT NOT NULL REFERENCES bots(id),
+    body BLOB NOT NULL,
+    kind TEXT NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0,
+    next_run INTEGER,
+    hook_hash TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX routines_user ON routines(user_id);
+  CREATE UNIQUE INDEX routines_hook ON routines(hook_hash) WHERE hook_hash IS NOT NULL;
+  CREATE TABLE routine_runs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    routine_id TEXT,
+    bot_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    body BLOB NOT NULL,
+    conv_id TEXT,
+    message_id TEXT,
+    error TEXT,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER
+  );
+  CREATE INDEX routine_runs_routine ON routine_runs(routine_id, started_at);
+  CREATE INDEX routine_runs_user ON routine_runs(user_id, status);
+  CREATE TABLE suggestions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    bot_id TEXT NOT NULL,
+    body BLOB NOT NULL,
+    rank INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    run_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX suggestions_user ON suggestions(user_id, status);
+  CREATE TABLE held_actions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    bot_id TEXT NOT NULL,
+    conv_id TEXT NOT NULL,
+    body BLOB NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX held_user ON held_actions(user_id, status);
+  `,
 ];
 
 export function openDb(file: string): DB {

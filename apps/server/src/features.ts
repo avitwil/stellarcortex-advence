@@ -19,11 +19,13 @@ import { registerMcpRoutes } from './routes/mcp.js';
 import { GoogleConnections } from './google/connections.js';
 import { GoogleTools, type GoogleApiBases } from './google/tools.js';
 import { registerGoogleRoutes } from './routes/google.js';
+import { Proactivity } from './proactive/engine.js';
+import { registerProactiveRoutes } from './routes/proactive.js';
 
 export interface McpServices { hub: McpHub; tokens: McpTokens }
 export interface GoogleServices { connections: GoogleConnections; tools: GoogleTools }
 
-export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string; skillSources?: InstallDeps; mcpFetch?: typeof fetch; googleApiFetch?: typeof fetch; googleApiBases?: GoogleApiBases }): Promise<{ chat: Chat; computers: Computers; memory: MemoryServices; mcp: McpServices; google: GoogleServices }> {
+export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string; skillSources?: InstallDeps; mcpFetch?: typeof fetch; googleApiFetch?: typeof fetch; googleApiBases?: GoogleApiBases }): Promise<{ chat: Chat; computers: Computers; memory: MemoryServices; mcp: McpServices; google: GoogleServices; proactive: Proactivity }> {
   registerSettingsRoutes(app, ctx);
   const chat = createChat(ctx);
   const computers = createComputers(ctx, chat, o.runtime, { imageDir: o.imageDir, image: o.image });
@@ -40,14 +42,20 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   chat.runtime.setTools(hub);
   const tokens = new McpTokens(ctx);
   registerMcpRoutes(app, ctx, hub, tokens);
-  const closeMcpServer = registerMcpServer(app, ctx, chat, tokens);
+  let proactive: Proactivity | null = null;
+  const closeMcpServer = registerMcpServer(app, ctx, chat, tokens, (user) => proactive?.summaries(user) ?? []);
   // P5: Google services for each user (FR-GGL-04..06).
   const connections = new GoogleConnections(ctx, chat.push);
   const googleTools = new GoogleTools(connections, { fetch: o.googleApiFetch, bases: o.googleApiBases });
   chat.runtime.setTools(googleTools);
   registerGoogleRoutes(app, ctx, connections);
+  // P6: proactive Bots, routines and triggers (FR-PRO-01..08, NFR-SEC-11).
+  proactive = new Proactivity(ctx, chat, { google: googleTools, hub, computers: computers.manager });
+  registerProactiveRoutes(app, ctx, proactive);
+  proactive.start();
   ws.onUpgrade(COMPUTER_WS_PATH, (req, socket, head) => computers.vnc.handleUpgrade(req, socket, head));
   app.addHook('onClose', async () => {
+    await proactive?.close();
     computers.close();
     await chat.close();
     memory.close();
@@ -62,5 +70,5 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   });
   // Must be last: catch-all for the opt-in browser UI.
   registerBrowserUi(app, ctx);
-  return { chat, computers, memory, mcp: { hub, tokens }, google: { connections, tools: googleTools } };
+  return { chat, computers, memory, mcp: { hub, tokens }, google: { connections, tools: googleTools }, proactive };
 }
