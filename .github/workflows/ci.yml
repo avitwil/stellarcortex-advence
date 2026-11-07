@@ -58,6 +58,18 @@ jobs:
           sudo aa-status 2>/dev/null | grep -iE 'podman|crun|runc|unpriv|chrom' || true
       - name: Build bot computer image (Podman, D-09)
         run: podman build -t localhost/advence-bot-computer:ci images/bot-computer
+      - name: Chromium sandbox probe (FR-PC-04 diagnostics)
+        continue-on-error: true
+        run: |
+          probe() {
+            podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all localhost/advence-bot-computer:ci sh -c '
+              unshare -Urm sh -c "mount -t tmpfs x /mnt && echo caps-in-userns-ok" || echo caps-in-userns-denied
+              timeout 60 chromium --headless=new --no-first-run --disable-gpu --enable-logging=stderr --v=0 --dump-dom chrome://sandbox 2>&1 | grep -vE "crashpad|dbus|Fontconfig" | grep -E "adequately|FATAL|ERROR|sandbox|namespace|zygote" | head -12'
+          }
+          echo "--- restrict_unprivileged_userns=1"; probe
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          echo "--- restrict_unprivileged_userns=0"; probe
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
       - name: Smoke test
         run: |
           printf 'ci-only-password' | podman secret create vnc_password -

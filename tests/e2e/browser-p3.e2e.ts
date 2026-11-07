@@ -40,9 +40,14 @@ describe('P3: Bot computer in the browser client', () => {
       const dlg = page.getByRole('dialog');
       await dlg.getByRole('heading', { name: 'Computer of Chief of Staff' }).waitFor();
       // The primary Bot's computer was created with the Bot (FR-PC-01); start it if needed.
+      // ("Not running" also contains "running", so match the whole status text.)
       const start = dlg.getByRole('button', { name: 'Start' });
-      if (await start.isVisible()) await start.click();
-      await dlg.getByRole('status').filter({ hasText: 'Running' }).waitFor({ timeout: 15000 });
+      const running = dlg.getByRole('status').filter({ hasText: /^Running$/ });
+      await expect.poll(async () => {
+        if (await running.isVisible()) return true;
+        if (await start.isVisible()) await start.click().catch(() => undefined);
+        return false;
+      }, { timeout: 20000 }).toBe(true);
 
       // noVNC connects through the server proxy and draws the first frame.
       const canvas = dlg.locator('.vnc-screen canvas');
