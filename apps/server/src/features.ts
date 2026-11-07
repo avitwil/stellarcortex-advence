@@ -13,8 +13,13 @@ import { COMPUTER_WS_PATH } from '@advence/protocol';
 import { createMemory, type MemoryServices } from './memory/index.js';
 import type { InstallDeps } from './memory/install.js';
 import { registerMemoryRoutes } from './routes/memory.js';
+import { McpHub } from './mcp/hub.js';
+import { McpTokens, registerMcpServer } from './mcp/server.js';
+import { registerMcpRoutes } from './routes/mcp.js';
 
-export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string; skillSources?: InstallDeps }): Promise<{ chat: Chat; computers: Computers; memory: MemoryServices }> {
+export interface McpServices { hub: McpHub; tokens: McpTokens }
+
+export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string; skillSources?: InstallDeps; mcpFetch?: typeof fetch }): Promise<{ chat: Chat; computers: Computers; memory: MemoryServices; mcp: McpServices }> {
   registerSettingsRoutes(app, ctx);
   const chat = createChat(ctx);
   const computers = createComputers(ctx, chat, o.runtime, { imageDir: o.imageDir, image: o.image });
@@ -26,11 +31,19 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   registerComputerRoutes(app, ctx, chat, computers);
   const memory = createMemory(ctx, chat, computers.manager, { install: o.skillSources });
   registerMemoryRoutes(app, ctx, chat, memory);
+  // P5: MCP client for Bots and this server's own MCP endpoint (FR-MCP-01..05).
+  const hub = new McpHub(ctx, chat.bots, computers.manager, { fetch: o.mcpFetch });
+  chat.runtime.setTools(hub);
+  const tokens = new McpTokens(ctx);
+  registerMcpRoutes(app, ctx, hub, tokens);
+  const closeMcpServer = registerMcpServer(app, ctx, chat, tokens);
   ws.onUpgrade(COMPUTER_WS_PATH, (req, socket, head) => computers.vnc.handleUpgrade(req, socket, head));
   app.addHook('onClose', async () => {
     computers.close();
     await chat.close();
     memory.close();
+    await hub.close();
+    await closeMcpServer();
   });
   // P1 exit criterion: an empty chat round-trip over the signed WebSocket.
   ws.on('chat.ping', (client, payload) => {
@@ -39,5 +52,5 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   });
   // Must be last: catch-all for the opt-in browser UI.
   registerBrowserUi(app, ctx);
-  return { chat, computers, memory };
+  return { chat, computers, memory, mcp: { hub, tokens } };
 }

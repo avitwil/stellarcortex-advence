@@ -44,6 +44,9 @@ and is listed in the generated section at the end of this file.
 | @fastify/forwarded | 3.1.2 | MIT |
 | @fastify/merge-json-schemas | 0.2.2 | MIT |
 | @fastify/proxy-addr | 5.1.2 | MIT |
+| @modelcontextprotocol/client | 2.4.0 | Apache-2.0 |
+| @modelcontextprotocol/core | 2.4.0 | Apache-2.0 |
+| @modelcontextprotocol/server | 2.4.0 | Apache-2.0 |
 | @noble/ciphers | 2.4.0 | MIT |
 | @noble/curves | 2.4.0 | MIT |
 | @noble/hashes | 2.4.0 | MIT |
@@ -107,6 +110,7 @@ and is listed in the generated section at the end of this file.
 | comma-separated-tokens | 2.0.3 | MIT |
 | cookie | 2.0.2 | MIT |
 | crc-32 | 1.2.2 | Apache-2.0 |
+| cross-spawn | 7.0.6 | MIT |
 | csstype | 3.2.3 | MIT |
 | debug | 4.4.3 | MIT |
 | decamelize | 1.2.0 | MIT |
@@ -127,6 +131,8 @@ and is listed in the generated section at the end of this file.
 | es-object-atoms | 1.1.2 | MIT |
 | escape-string-regexp | 5.0.0 | MIT |
 | estree-util-is-identifier-name | 3.0.0 | MIT |
+| eventsource | 3.0.7 | MIT |
+| eventsource-parser | 3.1.1 | MIT |
 | expand-template | 2.0.3 | (MIT OR WTFPL) |
 | extend | 3.0.2 | MIT |
 | fast-decode-uri-component | 1.0.1 | MIT |
@@ -173,6 +179,7 @@ and is listed in the generated section at the end of this file.
 | is-plain-obj | 4.1.0 | MIT |
 | is-typed-array | 1.1.15 | MIT |
 | isarray | 2.0.5 | MIT |
+| isexe | 2.0.0 | ISC |
 | isomorphic-git | 1.44.11 | MIT |
 | jose | 6.2.15 | MIT |
 | js-tokens | 4.0.0 | MIT |
@@ -245,10 +252,12 @@ and is listed in the generated section at the end of this file.
 | pako | 1.0.11 | (MIT AND Zlib) |
 | parse-entities | 4.0.2 | MIT |
 | path-exists | 4.0.0 | MIT |
+| path-key | 3.1.1 | MIT |
 | pify | 4.0.1 | MIT |
 | pino | 9.14.0 | MIT |
 | pino-abstract-transport | 2.0.0 | MIT |
 | pino-std-serializers | 7.1.0 | MIT |
+| pkce-challenge | 5.0.1 | MIT |
 | pngjs | 5.0.0 | MIT |
 | possible-typed-array-names | 1.1.0 | MIT |
 | prebuild-install | 7.1.3 | MIT |
@@ -287,6 +296,8 @@ and is listed in the generated section at the end of this file.
 | set-cookie-parser | 3.2.2 | MIT |
 | set-function-length | 1.2.2 | MIT |
 | sha.js | 2.4.12 | (MIT AND BSD-3-Clause) |
+| shebang-command | 2.0.0 | MIT |
+| shebang-regex | 3.0.0 | MIT |
 | simple-concat | 1.0.1 | MIT |
 | simple-get | 4.0.1 | MIT |
 | sonic-boom | 4.2.1 | MIT |
@@ -323,6 +334,7 @@ and is listed in the generated section at the end of this file.
 | vfile | 6.0.3 | MIT |
 | vfile-message | 4.0.4 | MIT |
 | void-elements | 3.1.0 | MIT |
+| which | 2.0.2 | ISC |
 | which-module | 2.0.1 | ISC |
 | which-typed-array | 1.1.24 | MIT |
 | wrap-ansi | 6.2.0 | MIT |

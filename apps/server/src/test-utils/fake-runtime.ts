@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ContainerInfo, ContainerRuntime, ContainerSpec, ExecOptions, RuntimeInfo } from '../computer/runtime.js';
+import type { ContainerInfo, ContainerRuntime, ContainerSpec, ExecOptions, InteractiveCommand, RuntimeInfo } from '../computer/runtime.js';
 import type { ProcessRun } from '../models/host.js';
 
 export const FAKE_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 0xff, 0xd9]);
@@ -122,6 +122,10 @@ export class FakeRuntime implements ContainerRuntime {
     p.stdin.end(o.stdin ?? '');
     const done = new Promise<{ code: number; stderr: string }>((r) => p.on('close', (code) => r({ code: code ?? -1, stderr })));
     return { lines: readline.createInterface({ input: p.stdout }), done };
+  }
+  interactive(name: string, argv: string[], env: Record<string, string>): InteractiveCommand {
+    if (!this.containers.get(name)?.running) throw new Error('not running');
+    return { command: argv[0]!, args: argv.slice(1), env: { PATH: `${this.bin}:${process.env.PATH}`, HOME: this.home(name), ...env }, cwd: this.home(name) };
   }
   async diskUsage() { return this.disk; }
 }

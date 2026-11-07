@@ -16,7 +16,7 @@ import { registerCoreRoutes } from './routes/core.js';
 import { WsGateway } from './ws.js';
 import type { AppContext } from './context.js';
 import type { ServerConfig } from './config.js';
-import { registerFeatures } from './features.js';
+import { registerFeatures, type McpServices } from './features.js';
 import type { Chat } from './chat/index.js';
 import { guardContainerPeers } from './computer/peer.js';
 import type { Computers } from './computer/index.js';
@@ -42,6 +42,8 @@ export interface BootOptions {
   image?: string;
   /** where third-party skills are fetched from (tests point it at a local mock) */
   skillSources?: InstallDeps;
+  /** Outbound fetch for remote MCP servers (tests). */
+  mcpFetch?: typeof fetch;
   testHooks?: AppContext['testHooks'];
 }
 
@@ -52,6 +54,7 @@ export interface Server {
   chat: Chat;
   computers: Computers;
   memory: MemoryServices;
+  mcp: McpServices;
   url: string;
   close(): Promise<void>;
 }
@@ -138,7 +141,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
   ctx.identity.onLogout = (id) => ws.closeDevice(id, 4004, 'signed out');
   registerCoreRoutes(app, ctx);
   const runtime = o.containerRuntime ?? (o.processHost ? new NoRuntime() : new PodmanRuntime());
-  const { chat, computers, memory } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources });
+  const { chat, computers, memory, mcp } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources, mcpFetch: o.mcpFetch });
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
   guardContainerPeers(app.server, () => ctx.log.warn('refused a connection from a Bot computer'));
 
@@ -153,6 +156,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
     chat,
     computers,
     memory,
+    mcp,
     url: `https://127.0.0.1:${port}`,
     async close() {
       ws.close();

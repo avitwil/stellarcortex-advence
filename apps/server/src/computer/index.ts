@@ -29,6 +29,7 @@ export class NoRuntime implements ContainerRuntime {
   async setSecret(): Promise<void> {}
   async removeSecret(): Promise<void> {}
   exec(): never { throw new Error('no runtime'); }
+  interactive(): never { throw new Error('no runtime'); }
   async diskUsage() { return 0; }
 }
 

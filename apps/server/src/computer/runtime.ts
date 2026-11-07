@@ -41,6 +41,8 @@ export interface ExecOptions {
   signal: AbortSignal;
 }
 
+export interface InteractiveCommand { command: string; args: string[]; env: Record<string, string>; cwd?: string }
+
 export interface ContainerRuntime {
   info(): Promise<RuntimeInfo>;
   /** an NVIDIA GPU is exposed through CDI (FR-PC-08) */
@@ -55,6 +57,8 @@ export interface ContainerRuntime {
   setSecret(name: string, value: string): Promise<void>;
   removeSecret(name: string): Promise<void>;
   exec(name: string, argv: string[], o: ExecOptions): ProcessRun;
+  /** How to start a long-lived process in the container with stdin and stdout attached (MCP stdio servers). */
+  interactive(name: string, argv: string[], env: Record<string, string>): InteractiveCommand;
   /** bytes used under /home/bot (the Bot's volume) */
   diskUsage(name: string): Promise<number>;
   /** Windows and macOS: starts the Podman machine VM; true when it is running */
@@ -248,6 +252,15 @@ export class PodmanRuntime implements ContainerRuntime {
     for (const k of names) env[k] = o.env![k];
     const args = ['exec', '-i', ...(o.cwd ? ['-w', o.cwd] : []), ...names.flatMap((k) => ['-e', k]), name, ...argv];
     return lines(spawn(this.bin, args, { env, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal }), o.stdin);
+  }
+
+  interactive(name: string, argv: string[], extra: Record<string, string>): InteractiveCommand {
+    // Secrets travel by name (`-e NAME`) with the value in podman's own environment, never in argv.
+    const names = Object.keys(extra).filter((k) => ENV_NAME.test(k));
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(this.baseEnv())) if (v !== undefined) env[k] = v;
+    for (const k of names) env[k] = extra[k]!;
+    return { command: this.bin, args: ['exec', '-i', ...names.flatMap((k) => ['-e', k]), name, ...argv], env };
   }
 
   async diskUsage(name: string): Promise<number> {

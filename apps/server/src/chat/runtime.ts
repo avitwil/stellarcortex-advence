@@ -40,6 +40,8 @@ export interface ToolProvider {
   run(c: ToolCtx, call: ToolCall): Promise<ModelMessage>;
   /** extra system prompt text for this Bot, if any */
   system?(user: User, bot: Bot): string | null;
+  /** loads what specs() needs (P5: MCP tool lists); errors are the provider's own to report */
+  prepare?(user: User, bot: Bot, signal: AbortSignal): Promise<void>;
 }
 
 export interface ReplyInfo { user: User; bot: Bot; convId: string; replyId: string; toolCalls: ToolCall[] }
@@ -249,6 +251,7 @@ export class ChatRuntime {
     const messages = this.context(user, bot, convId, parentId, selfId);
     if (!messages.length) throw new HttpError(409, 'nothing_to_answer');
     const delegates = bot.tools.includes('delegate') && o.depth < MAX_DELEGATION_DEPTH ? this.s.bots.list(user).filter((b) => b.id !== bot.id) : [];
+    await Promise.all((this.s.providers ?? []).map((p) => p.prepare?.(user, bot, signal).catch(() => undefined)));
     const tools: ToolSpec[] = (this.s.providers ?? []).flatMap((p) => p.specs(user, bot));
     if (delegates.length) tools.unshift(...[{
           name: 'delegate',
@@ -307,6 +310,7 @@ export class ChatRuntime {
     const signal = o.signal ?? AbortSignal.timeout(10 * 60_000);
     const { provider, kind } = this.s.sources.provider(user, bot.id, bot.sourceId);
     const model = bot.model || defaultModel(kind) || (await this.firstModel(provider, signal));
+    await Promise.all(o.providers.map((p) => p.prepare?.(user, bot, signal).catch(() => undefined)));
     const tools = o.providers.flatMap((p) => p.specs(user, bot));
     const calls: ToolCall[] = [];
     let text = '';

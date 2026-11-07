@@ -246,6 +246,40 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+  // P5: MCP servers the Bots use (FR-MCP-01/05) with their OAuth state (FR-MCP-03), access
+  // tokens for external clients of this server (FR-MCP-04), and Google connections (FR-GGL-04/05).
+  // Configurations, OAuth state and tokens are sealed; access tokens are stored as hashes.
+  `
+  CREATE TABLE mcp_servers (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    config BLOB NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE mcp_auth (
+    server_id TEXT PRIMARY KEY REFERENCES mcp_servers(id) ON DELETE CASCADE,
+    body BLOB NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE mcp_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    token_hash TEXT NOT NULL UNIQUE,
+    name BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used INTEGER
+  );
+  CREATE TABLE google_connections (
+    user_id TEXT PRIMARY KEY REFERENCES users(id),
+    body BLOB NOT NULL,
+    state TEXT NOT NULL,
+    connected_at INTEGER NOT NULL,
+    expires_at INTEGER,
+    reminded_at INTEGER
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

@@ -10,7 +10,7 @@ import type { AppContext } from '../context.js';
 import { getMeta, setMeta } from '../db.js';
 import { HttpError } from '../http.js';
 import { botVolume, BOT_IMAGE, type ProcessRun } from '../models/host.js';
-import { networkArgs, type ContainerRuntime, type ExecOptions, type RuntimeInfo } from './runtime.js';
+import { networkArgs, type ContainerRuntime, type ExecOptions, type InteractiveCommand, type RuntimeInfo } from './runtime.js';
 
 export const DEFAULT_LIMITS: ComputerLimits = { cpus: 2, memoryMb: 3072, diskGb: 20 };
 const DISK_CHECK_MS = 5 * 60_000;
@@ -359,6 +359,10 @@ export class ComputerManager {
   // ---------------------------------------------------------------- commands in the computer
   exec(botId: string, argv: string[], o: ExecOptions): ProcessRun {
     return this.runtime.exec(containerName(botId), argv, o);
+  }
+
+  interactive(botId: string, argv: string[], env: Record<string, string>): InteractiveCommand {
+    return this.runtime.interactive(containerName(botId), argv, env);
   }
 
   /** Disk limit watchdog (FR-PC-05): a computer over its limit is stopped and marked. */

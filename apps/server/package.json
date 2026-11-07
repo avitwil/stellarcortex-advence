@@ -15,6 +15,8 @@
   "dependencies": {
     "@advence/protocol": "workspace:*",
     "@anthropic-ai/sdk": "^1.6.0",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@peculiar/x509": "^1.12.0",
     "better-sqlite3": "^12.4.0",
     "fastify": "^5.6.0",
@@ -27,6 +29,8 @@
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/conformance": "0.2.0-alpha.12",
+    "@modelcontextprotocol/server-everything": "2.2.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/qrcode": "^1.5.5",
     "@types/ws": "^8.18.1"
