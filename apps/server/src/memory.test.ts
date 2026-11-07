@@ -2,6 +2,7 @@
 // an in-memory container runtime and a stand-in for GitHub.
 import fs from 'node:fs';
 import path from 'node:path';
+import { inflateSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Bot, User } from '@advence/protocol';
 import { startTestServer, ownerClient, pairedClient, type TestClient, type TestEnv } from './test-utils/harness.js';
@@ -67,13 +68,19 @@ async function chat(bot: Bot, text: string, conv?: string): Promise<{ conv: stri
   return { conv: c, reply: list[list.length - 1].text };
 }
 
-function rawDump(dir: string): string {
+function rawDump(dir: string, skipGit = false): string {
   let out = '';
   const walk = (d: string) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) out += `${p}\n${fs.readFileSync(p).toString('latin1')}\n`;
+      if (e.isDirectory()) {
+        if (!(skipGit && e.name === '.git')) walk(p);
+      } else if (e.isFile()) {
+        const b = fs.readFileSync(p);
+        out += `${p}\n${b.toString('latin1')}\n`;
+        // Git objects are zlib-compressed: look inside them too.
+        if (/\.git[\\/]objects[\\/][0-9a-f]{2}[\\/]/.test(p)) out += `${inflateSync(b).toString('latin1')}\n`;
+      }
     }
   };
   walk(dir);
@@ -240,7 +247,8 @@ describe('FR-MEM-04/05 git history, rollback and encryption at rest', () => {
 
     info = await req(owner, 'PATCH', '/v1/memory/settings', { mode: 'encrypted' });
     expect(info.mode).toBe('encrypted');
-    expect(rawDump(env.dataDir)).not.toContain('quokka-lagoon');
+    // The files are sealed again (versions written while plain stay in the history, as the warning says).
+    expect(rawDump(env.dataDir, true)).not.toContain('quokka-lagoon');
     expect(env.server.memory.memory.vault.read(user.id, `agents/${bot.id}/Packing.md`)).toContain('snorkel');
   });
 });

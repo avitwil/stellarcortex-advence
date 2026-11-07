@@ -231,7 +231,7 @@ export const en = {
     vault: 'Memory vault', notes: '{{n}} notes', mode: { encrypted: 'Encrypted', plain: 'Plain Markdown' },
     toPlain: 'Use a plain vault for Obsidian…', toEncrypted: 'Encrypt the vault again',
     plainWarnTitle: 'Store memory unencrypted?',
-    plainWarn: 'Every user’s memory on this server will be saved as plain Markdown files that anyone with access to the server’s disk can read. Use this only to open the vault in your own Obsidian.',
+    plainWarn: 'Every user’s memory on this server will be saved as plain Markdown files that anyone with access to the server’s disk can read. Use this only to open the vault in your own Obsidian. Versions saved while the vault is plain stay readable in its history, even after you encrypt it again.',
     plainConfirm: 'Switch to plain', plainWhere: 'Open this folder as a vault in Obsidian:',
     consolidation: 'Merge overlapping skills', consolidationHelp: 'The curator asks the Bot’s model to merge skills that repeat each other. Off by default.',
     curatorDays: 'Curator timing', staleDays: 'Mark unused after (days)', archiveDays: 'Archive after (days)',

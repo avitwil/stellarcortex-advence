@@ -31,6 +31,7 @@ export class Memory implements ToolProvider {
   readonly vault: Vault;
   readonly index = new MemoryIndex();
   private loaded = new Set<string>();
+  private locks = new Map<string, Promise<unknown>>();
 
   constructor(private ctx: AppContext, private activity: Activity) {
     this.vault = new Vault(ctx);
@@ -62,6 +63,14 @@ export class Memory implements ToolProvider {
     return this.vault.read(user.id, p);
   }
 
+  /** Note writes of one user run one at a time, so each sees the last one's index. */
+  private locked<T>(userId: string, f: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(userId) ?? Promise.resolve();
+    const next = prev.then(f, f);
+    this.locks.set(userId, next.catch(() => undefined));
+    return next;
+  }
+
   private rejected(user: User, bot: Bot, e: GuardError, path: string): never {
     this.ctx.log.warn({ bot: bot.id, rule: e.rule }, 'memory write rejected');
     this.activity.log(user.id, bot.id, 'memory.rejected', { bot: bot.name, rule: e.rule, path });
@@ -70,6 +79,10 @@ export class Memory implements ToolProvider {
 
   /** Creates or updates a note in the Bot's own folder, then refreshes its MEMORY.md. */
   async writeNote(user: User, bot: Bot, w: { name: string; content: string; type?: string; tags?: string[] }, source: string): Promise<string> {
+    return this.locked(user.id, () => this.writeNoteNow(user, bot, w, source));
+  }
+
+  private async writeNoteNow(user: User, bot: Bot, w: { name: string; content: string; type?: string; tags?: string[] }, source: string): Promise<string> {
     const name = w.name.replace(/\.md$/i, '').trim();
     const path = `${agentDir(bot.id)}${name}.md`;
     try {
@@ -108,6 +121,10 @@ export class Memory implements ToolProvider {
 
   /** Appends a dated line to a note in shared/ or user/ (append-only, single writer). */
   async append(user: User, bot: Bot, folder: 'shared' | 'user', name: string, text: string): Promise<string> {
+    return this.locked(user.id, () => this.appendNow(user, bot, folder, name, text));
+  }
+
+  private async appendNow(user: User, bot: Bot, folder: 'shared' | 'user', name: string, text: string): Promise<string> {
     const clean = name.replace(/\.md$/i, '').trim();
     const path = `${folder}/${clean}.md`;
     try {

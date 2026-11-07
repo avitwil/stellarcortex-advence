@@ -9,6 +9,7 @@ import { getMeta, setMeta } from '../db.js';
 import { HttpError } from '../http.js';
 import { newId } from '../ids.js';
 import type { Memory } from './memory.js';
+import type { Change } from './vault.js';
 import { skillDir, type SkillInfo, type Skills, type SkillStatus } from './skills.js';
 import { similarity, checkSize } from './guard.js';
 import { parseSkillMd, renderSkillMd, skillMetaOf } from './skill-format.js';
@@ -125,12 +126,13 @@ export class Curator {
       if (o.dryRun) return run;
       const merged = this.settings().consolidation ? await this.consolidate(user, new Set(actions.map((a) => a.skillId))) : { actions: [], writes: [] };
       run.actions.push(...merged.actions);
-      const changes: { path: string; content: string | null }[] = [...merged.writes];
+      const changes: Change[] = [...merged.writes];
       for (const a of run.actions) {
         if (a.fromDir === a.toDir) continue;
         for (const p of this.memory.vault.list(user.id, a.fromDir)) {
-          const content = changes.find((c) => c.path === p)?.content ?? this.memory.vault.read(user.id, p);
-          changes.push({ path: p, content: null }, { path: `${a.toDir}${p.slice(a.fromDir.length)}`, content });
+          const to = `${a.toDir}${p.slice(a.fromDir.length)}`;
+          const pending = changes.find((c) => c.path === p && c.content !== null);
+          changes.push({ path: p, content: null }, pending ? { path: to, content: pending.content } : { path: to, content: null, copyOf: p });
         }
       }
       changes.push({ path: LEDGER, content: `${this.memory.vault.read(user.id, LEDGER) ?? ''}${JSON.stringify(run)}\n` });
@@ -149,7 +151,7 @@ export class Curator {
     if (!run || run.dryRun) throw new HttpError(404, 'not_found');
     if (run.rolledBack) throw new HttpError(409, 'already_rolled_back');
     const then = run.snapshot.commit ? await this.memory.vault.filesAt(user.id, run.snapshot.commit) : new Map<string, string>();
-    const changes: { path: string; content: string | null }[] = [];
+    const changes: Change[] = [];
     for (const a of run.actions) {
       for (const p of this.memory.vault.list(user.id, a.toDir)) if (!then.has(p)) changes.push({ path: p, content: null });
       for (const [p, c] of then) if (p.startsWith(a.fromDir)) changes.push({ path: p, content: c });
@@ -183,14 +185,15 @@ export class Curator {
   }
 }
 
-/** Last write per path wins, so a file moved twice ends where it should. */
-function dedupe(changes: { path: string; content: string | null }[]): { path: string; content: string | null }[] {
-  const m = new Map<string, string | null>();
+/** One change per path: a write or copy beats a delete of the same path. */
+function dedupe(changes: Change[]): Change[] {
+  const m = new Map<string, Change>();
   for (const c of changes) {
-    if (c.content === null && m.has(c.path) && m.get(c.path) !== null) continue;
-    m.set(c.path, c.content);
+    const had = m.get(c.path);
+    if (c.content === null && !c.copyOf && had && (had.content !== null || had.copyOf)) continue;
+    m.set(c.path, c);
   }
-  return [...m].map(([path, content]) => ({ path, content }));
+  return [...m.values()];
 }
 
 export type { SkillInfo };

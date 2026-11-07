@@ -13,6 +13,7 @@ import { HttpError } from '../http.js';
 
 export type VaultMode = 'encrypted' | 'plain';
 const SEALED = '.sealed';
+const SEALED_MSG = 'advence-sealed:';
 const AUTHOR = { name: 'StellarCortex Advence', email: 'vault@advence.local' };
 const SEGMENT = /^[\p{L}\p{N}][\p{L}\p{N} _.()-]{0,99}$/u;
 
@@ -27,6 +28,8 @@ export function cleanPath(p: string): string {
 }
 
 export interface Commit { oid: string; message: string; at: number }
+/** A write: new content, null to delete, or a copy of another file as it is at write time. */
+export interface Change { path: string; content: string | null; copyOf?: string }
 
 export class Vault {
   readonly root: string;
@@ -145,19 +148,33 @@ export class Vault {
       else await git.add({ fs, dir, filepath: file });
     }
     if (!changed) return null;
-    return git.commit({ fs, dir, message: message.slice(0, 500), author: { ...AUTHOR, timestamp: Math.floor(Date.now() / 1000) } });
+    // Commit messages name notes and skills, so an encrypted vault seals them too.
+    const text = message.slice(0, 500);
+    const msg = this.mode() === 'encrypted' ? `${SEALED_MSG}${Buffer.from(seal(this.ctx.crypto.vaultKey, utf8(text), `vault-commit:${userId}`)).toString('base64')}` : text;
+    return git.commit({ fs, dir, message: msg, author: { ...AUTHOR, timestamp: Math.floor(Date.now() / 1000) } });
+  }
+
+  private message(userId: string, m: string): string {
+    if (!m.startsWith(SEALED_MSG)) return m;
+    try {
+      return fromUtf8(open(this.ctx.crypto.vaultKey, Buffer.from(m.slice(SEALED_MSG.length).trim(), 'base64'), `vault-commit:${userId}`));
+    } catch {
+      return '(sealed)';
+    }
   }
 
   /**
    * Applies a batch of writes (null deletes; only archives and the curator move files) and
    * commits it as one change (FR-MEM-04). Returns the commit id.
    */
-  async apply(userId: string, changes: { path: string; content: string | null }[], message: string): Promise<string | null> {
-    const clean = changes.map((c) => ({ path: cleanPath(c.path), content: c.content }));
+  async apply(userId: string, changes: Change[], message: string): Promise<string | null> {
+    const clean = changes.map((c) => ({ path: cleanPath(c.path), content: c.content, copyOf: c.copyOf ? cleanPath(c.copyOf) : undefined }));
     return this.serial(userId, async () => {
       await this.ensureRepo(userId);
       const files = this.load(userId);
-      for (const c of clean) {
+      // Copies read the file as it is now, inside the single-writer section (moves never lose a write).
+      const resolved = clean.map((c) => ({ path: c.path, content: c.copyOf !== undefined ? (files.get(c.copyOf) ?? null) : c.content }));
+      for (const c of resolved) {
         if (c.content === null) files.delete(c.path);
         else files.set(c.path, c.content);
         this.writeFile(userId, c.path, c.content);
@@ -170,7 +187,7 @@ export class Vault {
     const dir = this.dir(userId);
     if (!fs.existsSync(path.join(dir, '.git'))) return [];
     const log = await git.log({ fs, dir, depth });
-    return log.map((c) => ({ oid: c.oid, message: c.commit.message.trim(), at: c.commit.author.timestamp * 1000 }));
+    return log.map((c) => ({ oid: c.oid, message: this.message(userId, c.commit.message.trim()), at: c.commit.author.timestamp * 1000 }));
   }
 
   /** The vault's files as they were at a commit (logical paths and contents). */
