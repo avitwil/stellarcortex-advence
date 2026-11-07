@@ -105,6 +105,40 @@ shows both; for the CI debug APK use the debug key SHA-1 printed by
 2. On the phone install the ntfy app (the UnifiedPush distributor) and point it at that server.
 3. In the app, Settings > Notifications shows "This device receives notifications". Lock the phone, send a message from the desktop to a Bot: the phone shows a notification within 10 s, and the notification text has no message content.
 
+## P3
+
+### MC-P3-WIN / MC-P3-MAC: Bot computers on a Podman machine (FR-PC-07, P3 exit)
+On a fresh Windows 11 PC and a fresh macOS 14+ Mac: install the server, run `advence computer setup`,
+create a Bot, open its computer from the chat header, take over and hand back. Then run the
+FR-CODE-03 benchmark below on that host. Pass: setup ends with "Bot computers are ready", the
+desktop shows within 60 s once the image is built, and the benchmark passes.
+
+### MC-P3-ISOLATION-VM: API not reachable from containers on Windows and macOS (NFR-SEC-08)
+In a Bot's computer terminal on each Podman machine host, try
+`curl -k https://<host LAN IP>:<server port>/v1/server-info` and the same with
+`host.containers.internal`. Pass: no 200 answer. (Linux is covered by CI.)
+
+### MC-P3-BENCH: coding benchmark (FR-CODE-03)
+Copy `docs/bench/fr-code-03` into a Bot's `~/workspace`, ask the Bot: "Fix the failing tests
+in ~/workspace/fr-code-03 and commit." for each engine. Pass: `npm test` passes and a new
+commit exists, with no help.
+
+### MC-P3-LATENCY: smooth desktop (FR-PC-02)
+On a LAN client, open the Bot's computer next to the old VM + noVNC; move windows, type in
+Chromium, scroll a page. Pass: input latency under 100 ms and at least the same frame rate.
+
+### MC-P3-GPU: NVIDIA GPU passthrough (FR-PC-08)
+On a Linux host (and Windows) with an NVIDIA GPU and CDI (`nvidia-ctk cdi generate`), restart
+the server. Pass: Settings shows the GPU, and `nvidia-smi` works in the Bot's terminal.
+
+### MC-P3-HOST: host control on each OS (FR-PC-09)
+With Host control on for a Bot, ask it to take a screenshot and type into a text editor on
+the host, on Linux (X11 and Wayland), Windows and macOS (grant Accessibility and Screen
+Recording). Then turn Host control off. Pass: it works when on and the tool is refused when off.
+
+### MC-P3-ANDROID-TAKEOVER: take-over on Android (FR-UI-05)
+On the Android app, open a Bot's computer, take over, tap and type, hand back.
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|

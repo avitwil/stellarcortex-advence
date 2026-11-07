@@ -57,6 +57,8 @@ export interface ContainerRuntime {
   exec(name: string, argv: string[], o: ExecOptions): ProcessRun;
   /** bytes used under /home/bot (the Bot's volume) */
   diskUsage(name: string): Promise<number>;
+  /** Windows and macOS: starts the Podman machine VM; true when it is running */
+  startMachine?(): Promise<boolean>;
 }
 
 export const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
@@ -154,6 +156,10 @@ export class PodmanRuntime implements ContainerRuntime {
 
   async imageExists(image: string): Promise<boolean> {
     return (await this.run(['image', 'exists', image], { timeoutMs: 30_000 })).code === 0;
+  }
+
+  async startMachine(): Promise<boolean> {
+    return (await this.run(['machine', 'start'], { timeoutMs: 300_000 })).code === 0;
   }
 
   async buildImage(contextDir: string, image: string, onProgress: (p: number) => void, signal: AbortSignal): Promise<void> {

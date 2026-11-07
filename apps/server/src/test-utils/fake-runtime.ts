@@ -64,7 +64,16 @@ export class FakeRuntime implements ContainerRuntime {
     this.http.close();
   }
 
+  /** Windows/macOS: the Podman machine is stopped until startMachine() */
+  machineStopped = false;
+  machineStarts = 0;
+  async startMachine(): Promise<boolean> {
+    this.machineStarts++;
+    this.machineStopped = false;
+    return true;
+  }
   async info(): Promise<RuntimeInfo> {
+    if (this.machineStopped) return { available: false, version: null, error: 'runtime_not_running', rootless: false, pasta: false };
     return this.available
       ? { available: true, version: '5.4.0', error: null, rootless: true, pasta: true }
       : { available: false, version: null, error: 'runtime_missing', rootless: false, pasta: false };

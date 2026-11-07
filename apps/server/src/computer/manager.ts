@@ -137,8 +137,13 @@ export class ComputerManager {
 
   // ---------------------------------------------------------------- lifecycle
   /** Starts the computers of all Bots when auto-start is on, and the disk watchdog. */
-  async init(bots: BotRef[]): Promise<void> {
-    const info = await this.runtimeInfo(true);
+  async init(bots: BotRef[], platform: NodeJS.Platform = process.platform): Promise<void> {
+    let info = await this.runtimeInfo(true);
+    // Windows and macOS: the containers live in the Podman machine, started with the server (FR-PC-07).
+    if (!info.available && info.error === 'runtime_not_running' && this.autoStart() && (platform === 'win32' || platform === 'darwin') && this.runtime.startMachine) {
+      this.ctx.log.info('starting the Podman machine');
+      if (await this.runtime.startMachine().catch(() => false)) info = await this.runtimeInfo(true);
+    }
     this.image.present = info.available && (await this.runtime.imageExists(this.imageName).catch(() => false));
     if (this.ac.signal.aborted) return;
     this.timer = setInterval(() => void this.checkDisks(), DISK_CHECK_MS);

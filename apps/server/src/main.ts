@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// `advence` command: serve (default), pair, admin, backup, restore, unlock, version.
+// `advence` command: serve (default), pair, admin, backup, restore, unlock, computer setup, version.
 import { loadConfig, VERSION } from './config.js';
 import { startServer } from './app.js';
 import { ask } from './cli/prompt.js';
+import { cmdComputerSetup, systemDeps } from './cli/computer-setup.js';
 import { cmdPair, cmdAdminReset, cmdAdminDevices, cmdAdminRevoke, cmdBackup, cmdRestore, cmdUnlock, type CliIO } from './cli/commands.js';
 
 const io: CliIO = { out: (s) => process.stdout.write(s), ask, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
@@ -16,6 +17,8 @@ const USAGE = `Usage: advence <command>
   backup --out <file>   encrypted backup of master key + device registry
   restore --in <file>   restore a key backup into an empty data folder
   unlock                provide the unlock passphrase
+  computer setup [--yes] [--no-autostart]
+                        set up Podman and build the Bot computer image
   version
 `;
 
@@ -64,6 +67,12 @@ async function main(argv: string[]): Promise<number> {
     case 'unlock':
       await cmdUnlock(cfg, io);
       return 0;
+    case 'computer':
+      if (sub !== 'setup') {
+        io.out(USAGE);
+        return 2;
+      }
+      return (await cmdComputerSetup(cfg, io, systemDeps(), { yes: argv.includes('--yes'), autoStart: !argv.includes('--no-autostart') })) ? 0 : 1;
     case 'version':
       io.out(`${VERSION}\n`);
       return 0;
