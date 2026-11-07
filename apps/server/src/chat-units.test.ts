@@ -7,7 +7,7 @@ import { mentionedBots } from './chat/runtime.js';
 import { extractLinks, kindForUrl } from './chat/library.js';
 import { ftsQuery } from './chat/search.js';
 import { transcript } from './models/cli.js';
-import { PodmanHost } from './models/host.js';
+import { BOT_IMAGE, PodmanHost } from './models/host.js';
 
 describe('FR-BOT-03 @mentions', () => {
   const bots = [{ id: 'a', name: 'Ann' }, { id: 'b', name: 'Ann Lee' }, { id: 'c', name: 'מתכנן' }];
@@ -57,7 +57,7 @@ describe('D-07c subscription CLIs', () => {
     expect((await run.done).code).toBe(0);
     const argv = fs.readFileSync(path.join(dir, 'argv'), 'utf8').trim().split('\n');
     expect(argv.join(' ')).not.toContain('secret-value');
-    expect(argv).toEqual(expect.arrayContaining(['--rm', '--cap-drop', 'all', 'no-new-privileges', '-e', 'CLAUDE_CODE_OAUTH_TOKEN', 'advence-bot-bot_x-home:/home/bot', 'localhost/advence-bot-computer:latest', 'claude', '-p']));
+    expect(argv).toEqual(expect.arrayContaining(['--rm', '--cap-drop', 'all', 'no-new-privileges', '-e', 'CLAUDE_CODE_OAUTH_TOKEN', 'advence-bot-bot_x-home:/home/bot', BOT_IMAGE, 'claude', '-p']));
     expect(argv).not.toContain('bad name');
     expect(fs.readFileSync(path.join(dir, 'env'), 'utf8')).toBe('secret-value');
   });

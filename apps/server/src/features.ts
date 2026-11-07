@@ -6,12 +6,26 @@ import { registerSettingsRoutes } from './routes/settings.js';
 import { registerBrowserUi } from './browser-ui.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { createChat, type Chat } from './chat/index.js';
+import { createComputers, type Computers } from './computer/index.js';
+import type { ContainerRuntime } from './computer/runtime.js';
+import { registerComputerRoutes } from './routes/computer.js';
+import { COMPUTER_WS_PATH } from '@advence/protocol';
 
-export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway): Promise<Chat> {
+export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string }): Promise<{ chat: Chat; computers: Computers }> {
   registerSettingsRoutes(app, ctx);
   const chat = createChat(ctx);
-  registerChatRoutes(app, ctx, chat);
-  app.addHook('onClose', async () => chat.close());
+  const computers = createComputers(ctx, chat, o.runtime, { imageDir: o.imageDir, image: o.image });
+  registerChatRoutes(app, ctx, chat, {
+    // FR-PC-01: a new Bot gets its computer right away; a deleted Bot's computer is archived.
+    created: (user, id) => void computers.manager.ensure({ id, userId: user.id }).catch(() => undefined),
+    archived: (user, id) => void computers.manager.archive({ id, userId: user.id }),
+  });
+  registerComputerRoutes(app, ctx, chat, computers);
+  ws.onUpgrade(COMPUTER_WS_PATH, (req, socket, head) => computers.vnc.handleUpgrade(req, socket, head));
+  app.addHook('onClose', async () => {
+    computers.close();
+    await chat.close();
+  });
   // P1 exit criterion: an empty chat round-trip over the signed WebSocket.
   ws.on('chat.ping', (client, payload) => {
     const text = typeof (payload as { text?: unknown })?.text === 'string' ? (payload as { text: string }).text.slice(0, 2000) : '';
@@ -19,5 +33,5 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   });
   // Must be last: catch-all for the opt-in browser UI.
   registerBrowserUi(app, ctx);
-  return chat;
+  return { chat, computers };
 }

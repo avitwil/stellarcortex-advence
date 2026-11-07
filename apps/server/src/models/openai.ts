@@ -12,7 +12,9 @@ export interface OpenAiOptions {
 function toOpenAi(system: string, messages: ModelMessage[]): unknown[] {
   const out: unknown[] = [];
   if (system) out.push({ role: 'system', content: system });
-  for (const m of messages) {
+  const images: unknown[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
     if (m.role === 'user') {
       const onlyText = m.content.every((p) => p.type === 'text');
       out.push({
@@ -29,6 +31,14 @@ function toOpenAi(system: string, messages: ModelMessage[]): unknown[] {
       });
     } else {
       out.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content });
+      // Tool messages carry text only; screenshots follow, after the last tool message of the
+      // turn, as one user message.
+      for (const p of m.images ?? []) images.push({ type: 'image_url', image_url: { url: `data:${p.mime};base64,${p.dataB64}` } });
+      const next = messages[i + 1];
+      if (images.length && next?.role !== 'tool') {
+        out.push({ role: 'user', content: [{ type: 'text', text: 'Screenshots from the tool calls above:' }, ...images] });
+        images.length = 0;
+      }
     }
   }
   return out;

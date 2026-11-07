@@ -91,6 +91,18 @@ export class ModelSources {
   }
 
   /**
+   * Raw credentials of a Bot's source for a coding engine in its container (FR-CODE-05): the
+   * values are passed to the engine process by environment name only, at run time.
+   */
+  credentials(botUser: User, sourceId: string): { kind: ModelSourceKind; baseUrl: string | null; secret: string | undefined } {
+    const r = this.row(sourceId);
+    if (!r || r.user_id !== botUser.id) throw new HttpError(409, 'model_source_missing');
+    const subscription = r.kind === 'claude-subscription' || r.kind === 'chatgpt-subscription';
+    if (subscription && botUser.role !== 'owner') throw new HttpError(403, 'owner_only');
+    return { kind: r.kind, baseUrl: r.base_url, secret: this.ctx.secrets.get(subscription ? tokenName(r.id) : keyName(r.id)) };
+  }
+
+  /**
    * The provider for a Bot's configured source (FR-BOT-04). The source must belong to the Bot's
    * owner, and a subscription source only ever serves the server owner's own Bots (D-07c).
    */

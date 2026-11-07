@@ -12,6 +12,7 @@ import {
   decodePairingLink, type SessionRes,
 } from '@advence/protocol';
 import { startServer, type Server, type BootOptions } from '../app.js';
+import { NoRuntime } from '../computer/index.js';
 import type { GoogleEndpoints } from '../auth/google.js';
 import { createLogger } from '../log.js';
 
@@ -113,6 +114,8 @@ export async function startTestServer(opts: { dataDir?: string; unlockDir?: stri
     googleEndpoints: google.endpoints,
     fetchImpl: google.fetchImpl,
     logger: createLogger('debug', (l) => void logs.push(l)),
+    // No real containers in tests unless a test brings its own runtime.
+    containerRuntime: new NoRuntime(),
     ...opts.boot,
   });
   return { server, dataDir, unlockDir, google, logs, close: () => server.close() };

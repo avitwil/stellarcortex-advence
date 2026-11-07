@@ -64,8 +64,12 @@ export const Bot = z.object({
 });
 export type Bot = z.infer<typeof Bot>;
 
-/** Tools a Bot may be given in P2. Later phases add to this list. */
-export const BOT_TOOLS = ['delegate'] as const;
+/**
+ * Tools a Bot may be given. delegate: hand tasks to other Bots (P2). code: run a coding engine
+ * in the Bot's computer (P3, FR-CODE-*). computer: see and use the Bot's own desktop (P3).
+ * host: control the server's own desktop, only when Host control is on (D-12, FR-PC-09).
+ */
+export const BOT_TOOLS = ['delegate', 'code', 'computer', 'host'] as const;
 
 export const CreateBotReq = z.object({
   name: z.string().trim().min(1).max(48),
@@ -127,6 +131,11 @@ export const Message = z.object({
   status: z.enum(['done', 'streaming', 'error']),
   error: z.string().nullable(),
   replyCount: z.number(),
+  /** coding engine activity shown with the reply (FR-CODE-04) */
+  steps: z.array(z.object({
+    id: z.string(), kind: z.enum(['command', 'diff', 'tool', 'plan']), title: z.string(), body: z.string(),
+    status: z.enum(['running', 'done', 'failed']), exitCode: z.number().nullable(),
+  })).optional(),
   createdAt: z.number(),
 });
 export type Message = z.infer<typeof Message>;

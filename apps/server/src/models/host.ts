@@ -2,11 +2,15 @@
 // turn in a throwaway container from the bot-computer image with only the Bot's home volume.
 // Secrets are passed by environment name, never on the command line (NFR-SEC-09).
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import readline from 'node:readline';
+import { VERSION } from '../config.js';
 
 export interface RunSpec {
   /** Bot whose home volume the command runs in. */
   botId: string;
+  /** working directory inside the computer (default: the Bot's home) */
+  cwd?: string;
   argv: string[];
   stdin: string;
   /** Extra environment for the command (secret values allowed). */
@@ -24,8 +28,8 @@ export interface ProcessHost {
   run(spec: RunSpec): ProcessRun;
 }
 
-function runProcess(cmd: string, args: string[], env: NodeJS.ProcessEnv, stdin: string, signal: AbortSignal): ProcessRun {
-  const p = spawn(cmd, args, { env, stdio: ['pipe', 'pipe', 'pipe'], signal });
+function runProcess(cmd: string, args: string[], env: NodeJS.ProcessEnv, stdin: string, signal: AbortSignal, cwd?: string): ProcessRun {
+  const p = spawn(cmd, args, { env, stdio: ['pipe', 'pipe', 'pipe'], signal, cwd });
   let stderr = '';
   p.stderr.on('data', (d: Buffer) => {
     stderr = (stderr + d.toString('utf8')).slice(-4000);
@@ -41,41 +45,61 @@ function runProcess(cmd: string, args: string[], env: NodeJS.ProcessEnv, stdin: 
   return { lines: rl, done };
 }
 
-export const BOT_IMAGE = 'localhost/advence-bot-computer:latest';
+/** Built locally per server version, never pulled from a registry (D-09). */
+export const BOT_IMAGE = `localhost/advence-bot-computer:${VERSION}`;
 
 export function botVolume(botId: string): string {
   return `advence-bot-${botId.replace(/[^A-Za-z0-9_-]/g, '')}-home`;
 }
 
-/** Runs the command in a fresh container of the bot-computer image (rootless Podman). */
+/**
+ * Runs the command in the Bot's running computer (`podman exec`), or else in a fresh container
+ * of the bot-computer image with only the Bot's home volume (rootless Podman).
+ */
 export class PodmanHost implements ProcessHost {
+  private hooks: { running(botId: string): boolean; container(botId: string): string; network(): string[] } | null = null;
   constructor(private o: { podman?: string; image?: string } = {}) {}
+
+  /** Set by the computer manager so CLIs share the Bot's live computer and its network policy. */
+  attach(hooks: { running(botId: string): boolean; container(botId: string): string; network(): string[] }): void {
+    this.hooks = hooks;
+  }
+
   run(spec: RunSpec): ProcessRun {
     const envNames = Object.keys(spec.env).filter((k) => /^[A-Z_][A-Z0-9_]*$/.test(k));
-    const args = [
-      'run', '--rm', '-i',
-      '--security-opt', 'no-new-privileges',
-      '--cap-drop', 'all',
-      '-v', `${botVolume(spec.botId)}:/home/bot`,
-      '-w', '/home/bot/work',
-      ...envNames.flatMap((k) => ['-e', k]),
-      '--entrypoint', '/usr/bin/env',
-      this.o.image ?? BOT_IMAGE,
-      'PATH=/home/bot/.local/bin:/usr/local/bin:/usr/bin:/bin',
-      ...spec.argv,
-    ];
+    const cwd = spec.cwd ?? '/home/bot';
+    const args = this.hooks?.running(spec.botId)
+      ? ['exec', '-i', '-w', cwd, ...envNames.flatMap((k) => ['-e', k]), this.hooks.container(spec.botId), '/usr/bin/env', 'PATH=/home/bot/.local/bin:/usr/local/bin:/usr/bin:/bin', ...spec.argv]
+      : [
+          'run', '--rm', '-i',
+          '--security-opt', 'no-new-privileges',
+          '--cap-drop', 'all',
+          ...(this.hooks?.network() ?? []),
+          '-v', `${botVolume(spec.botId)}:/home/bot`,
+          '-w', cwd,
+          ...envNames.flatMap((k) => ['-e', k]),
+          '--entrypoint', '/usr/bin/env',
+          this.o.image ?? BOT_IMAGE,
+          'PATH=/home/bot/.local/bin:/usr/local/bin:/usr/bin:/bin',
+          ...spec.argv,
+        ];
     const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR };
     for (const k of envNames) env[k] = spec.env[k];
-    return runProcess(this.o.podman ?? 'podman', args, env, spec.stdin, spec.signal);
+    return runProcess(this.o.podman ?? process.env.ADVENCE_PODMAN ?? 'podman', args, env, spec.stdin, spec.signal);
   }
 }
 
-/** Runs the command directly; used by tests with fake CLIs. */
+/** Runs the command directly; used by tests with fake CLIs. `home` stands in for /home/bot. */
 export class LocalHost implements ProcessHost {
-  constructor(private o: { binDir: string; cwd?: string }) {}
+  constructor(private o: { binDir: string; cwd?: string; home?: string }) {}
   run(spec: RunSpec): ProcessRun {
     const [cmd, ...args] = spec.argv;
-    const env: NodeJS.ProcessEnv = { PATH: `${this.o.binDir}:${process.env.PATH}`, ...spec.env };
-    return runProcess(cmd!, args, env, spec.stdin, spec.signal);
+    const env: NodeJS.ProcessEnv = { PATH: `${this.o.binDir}:${process.env.PATH}`, ...(this.o.home ? { HOME: this.o.home } : {}), ...spec.env };
+    let cwd = this.o.cwd;
+    if (spec.cwd && this.o.home) {
+      cwd = spec.cwd.replace(/^\/home\/bot/, this.o.home);
+      fs.mkdirSync(cwd, { recursive: true });
+    }
+    return runProcess(cmd!, args, env, spec.stdin, spec.signal, cwd);
   }
 }

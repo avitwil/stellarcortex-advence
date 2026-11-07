@@ -16,6 +16,7 @@ import type { UsageLog } from './usage.js';
 import type { Activity } from './activity.js';
 import type { Push } from './push.js';
 import type { SearchIndex } from './search.js';
+import type { BotTools } from './tools.js';
 
 export interface ChatServices {
   bots: Bots;
@@ -26,6 +27,8 @@ export interface ChatServices {
   activity: Activity;
   push: Push;
   search: SearchIndex;
+  /** P3 tools: code, computer, host (set once the computer services exist) */
+  tools?: BotTools;
 }
 
 /** Bounds that keep Bots from talking to each other forever. */
@@ -89,6 +92,11 @@ export class ChatRuntime {
   private pending = new Set<Promise<unknown>>();
 
   constructor(private ctx: AppContext, private s: ChatServices) {}
+
+  /** P3: the code, computer and host tools (set once the computer services exist). */
+  setTools(t: BotTools): void {
+    this.s.tools = t;
+  }
 
   /** Posts the user's message and starts the replies. Retrying with the same clientId is a no-op. */
   send(user: User, convId: string, req: { text: string; parentId?: string | null; attachmentIds?: string[]; clientId: string }): Message {
@@ -210,8 +218,8 @@ export class ChatRuntime {
     const messages = this.context(user, bot, convId, parentId, selfId);
     if (!messages.length) throw new HttpError(409, 'nothing_to_answer');
     const delegates = bot.tools.includes('delegate') && o.depth < MAX_DELEGATION_DEPTH ? this.s.bots.list(user).filter((b) => b.id !== bot.id) : [];
-    const tools: ToolSpec[] = delegates.length
-      ? [{
+    const tools: ToolSpec[] = [...(this.s.tools?.specs(user, bot) ?? [])];
+    if (delegates.length) tools.unshift(...[{
           name: 'delegate',
           description: `Hand a task to another of the user's Bots and get its answer back. Available Bots: ${delegates.map((b) => b.name).join(', ')}.`,
           parameters: {
@@ -223,8 +231,7 @@ export class ChatRuntime {
             required: ['bot', 'task'],
             additionalProperties: false,
           },
-        }]
-      : [];
+        }]);
     const system = this.system(user, bot, convId, delegates);
 
     let wrote = false;
@@ -245,7 +252,7 @@ export class ChatRuntime {
       if (done.stop === 'refusal' && !turnText) throw new ProviderError('failed', 'refused');
       if (done.stop !== 'tool_use' || done.toolCalls.length === 0) return;
       messages.push({ role: 'assistant', text: done.text, toolCalls: done.toolCalls, native: done.native });
-      for (const call of done.toolCalls) messages.push(await this.runTool(user, bot, call, delegates, o, signal));
+      for (const call of done.toolCalls) messages.push(await this.runTool(user, bot, call, delegates, o, signal, convId, selfId));
     }
     throw new ProviderError('failed', 'too many tool turns');
   }
@@ -256,8 +263,9 @@ export class ChatRuntime {
     return models[0];
   }
 
-  private async runTool(user: User, bot: Bot, call: ToolCall, delegates: Bot[], o: RunOpts, signal: AbortSignal): Promise<ModelMessage> {
+  private async runTool(user: User, bot: Bot, call: ToolCall, delegates: Bot[], o: RunOpts, signal: AbortSignal, convId: string, selfId: string): Promise<ModelMessage> {
     const fail = (content: string): ModelMessage => ({ role: 'tool', toolCallId: call.id, content, isError: true });
+    if (this.s.tools?.handles(call.name)) return this.s.tools.run({ user, bot, convId, messageId: selfId, signal }, call);
     if (call.name !== 'delegate') return fail(`Unknown tool ${call.name}.`);
     const p = DelegateInput.safeParse(call.input);
     if (!p.success) return fail('Invalid input: give "bot" (a Bot name) and "task".');

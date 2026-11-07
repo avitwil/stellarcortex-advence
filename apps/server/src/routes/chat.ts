@@ -23,7 +23,12 @@ const Paging = z.object({
 const params = (req: FastifyRequest) => req.params as Record<string, string>;
 const query = (req: FastifyRequest) => parse(Paging, req.query ?? {});
 
-export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: AppContext, chat: Chat): void {
+export interface BotHooks {
+  created(user: User, botId: string): void;
+  archived(user: User, botId: string): void;
+}
+
+export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: AppContext, chat: Chat, hooks?: BotHooks): void {
   const route = router(app, ctx);
   const { bots, store, sources, library, usage, activity, push, search, runtime, logins } = chat;
 
@@ -80,6 +85,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
     const b = bots.create(user, parse(CreateBotReq, req.body));
     activity.log(user.id, b.id, 'bot.created', { bot: b.name });
     botEvent(user, b.id);
+    hooks?.created(user, b.id);
     return b;
   });
   route('GET', '/v1/bots/:id', 'session', (req) => bots.owned(userOf(req), params(req).id!));
@@ -94,6 +100,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
     const user = userOf(req);
     const b = bots.owned(user, params(req).id!);
     bots.archive(user, b.id);
+    hooks?.archived(user, b.id);
     activity.log(user.id, b.id, 'bot.archived', { bot: b.name });
     botEvent(user, b.id);
   });

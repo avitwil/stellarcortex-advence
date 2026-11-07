@@ -2,7 +2,7 @@
 // Every piece of content is sealed under the content key with a per-row AAD (NFR-SEC-04).
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Attachment, Conversation, Message, User } from '@advence/protocol';
+import type { Attachment, Conversation, EngineStep, Message, User } from '@advence/protocol';
 import { MAX_ATTACHMENT_BYTES } from '@advence/protocol';
 import type { AppContext } from '../context.js';
 import { HttpError } from '../http.js';
@@ -12,7 +12,7 @@ interface ConvRow { id: string; user_id: string; kind: 'direct' | 'group'; title
 export interface MsgRow {
   id: string; conversation_id: string; author: 'user' | 'bot' | 'system'; user_id: string | null; bot_id: string | null;
   body: Buffer; parent_id: string | null; status: 'done' | 'streaming' | 'error'; error: string | null; client_id: string | null;
-  created_at: number; updated_at: number;
+  created_at: number; updated_at: number; steps: Buffer | null;
 }
 interface Body { text: string; mentions: string[] }
 
@@ -159,8 +159,18 @@ export class ChatStore {
       status: r.status,
       error: r.error,
       replyCount,
+      ...(r.steps ? { steps: this.steps(r) } : {}),
       createdAt: r.created_at,
     };
+  }
+
+  /** Coding engine activity of a reply (FR-CODE-04), sealed like the body. */
+  steps(r: MsgRow): EngineStep[] {
+    return r.steps ? (JSON.parse(this.ctx.crypto.openContent(r.steps, `steps:${r.id}`)) as EngineStep[]) : [];
+  }
+
+  setSteps(id: string, steps: EngineStep[]): void {
+    this.ctx.db.prepare('UPDATE messages SET steps = ?, updated_at = ? WHERE id = ?').run(this.ctx.crypto.sealContent(JSON.stringify(steps), `steps:${id}`), Date.now(), id);
   }
 
   /** Top-level messages, or the replies of one thread, oldest first. */

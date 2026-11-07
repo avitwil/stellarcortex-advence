@@ -9,7 +9,7 @@ export interface ToolCall { id: string; name: string; input: unknown }
 export type ModelMessage =
   | { role: 'user'; content: UserPart[] }
   | { role: 'assistant'; text: string; toolCalls?: ToolCall[]; /** provider-native blocks to replay inside one tool loop */ native?: unknown }
-  | { role: 'tool'; toolCallId: string; content: string; isError?: boolean };
+  | { role: 'tool'; toolCallId: string; content: string; isError?: boolean; /** screenshots from computer tools */ images?: ImagePart[] };
 
 export interface ToolSpec {
   name: string;

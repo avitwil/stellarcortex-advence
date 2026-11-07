@@ -11,6 +11,8 @@ interface BotRow {
 }
 
 export const PRIMARY_BOT_NAME = 'Chief of Staff';
+/** Every Bot has its own computer (FR-PC-01), so new Bots can code and use it by default. */
+export const DEFAULT_TOOLS = ['code', 'computer'];
 export const PRIMARY_INSTRUCTIONS =
   'You are the user\'s chief of staff. Answer directly when you can. When another Bot is better suited, hand the task to it with the delegate tool, then summarize its result for the user.';
 
@@ -67,7 +69,7 @@ export class Bots {
     const id = newId('bot');
     this.ctx.db
       .prepare("INSERT INTO bots(id, user_id, name, avatar, instructions, engine, tools, is_primary, created_at) VALUES(?,?,?,?,?,?,?,1,?)")
-      .run(id, user.id, PRIMARY_BOT_NAME, '★', this.ctx.crypto.sealContent(PRIMARY_INSTRUCTIONS, `bot:${id}`), 'claude-agent-sdk', JSON.stringify(['delegate']), Date.now());
+      .run(id, user.id, PRIMARY_BOT_NAME, '★', this.ctx.crypto.sealContent(PRIMARY_INSTRUCTIONS, `bot:${id}`), 'claude-agent-sdk', JSON.stringify(['delegate', ...DEFAULT_TOOLS]), Date.now());
   }
 
   private checkSource(user: User, sourceId: string | null | undefined): void {
@@ -82,13 +84,15 @@ export class Bots {
     const id = newId('bot');
     this.ctx.db
       .prepare('INSERT INTO bots(id, user_id, name, avatar, instructions, source_id, model, engine, tools, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(id, user.id, b.name, b.avatar ?? b.name.slice(0, 1).toUpperCase(), this.ctx.crypto.sealContent(b.instructions ?? '', `bot:${id}`), b.sourceId ?? null, b.model ?? '', b.engine ?? 'claude-agent-sdk', JSON.stringify(b.tools ?? []), Date.now());
+      .run(id, user.id, b.name, b.avatar ?? b.name.slice(0, 1).toUpperCase(), this.ctx.crypto.sealContent(b.instructions ?? '', `bot:${id}`), b.sourceId ?? null, b.model ?? '', b.engine ?? 'claude-agent-sdk', JSON.stringify(b.tools ?? DEFAULT_TOOLS), Date.now());
     return this.get(id)!;
   }
 
   update(user: User, id: string, b: Partial<{ name: string; avatar: string; instructions: string; sourceId: string | null; model: string; engine: Engine; tools: string[]; proactive: boolean; hostControl: boolean; notify: 'all' | 'off' }>): Bot {
     this.owned(user, id);
     if (b.sourceId !== undefined) this.checkSource(user, b.sourceId);
+    // Host control drives the server's own desktop: only the server owner may turn it on (D-12).
+    if (b.hostControl && user.role !== 'owner') throw new HttpError(403, 'owner_only');
     const set: string[] = [];
     const vals: unknown[] = [];
     const put = (col: string, v: unknown) => {

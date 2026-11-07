@@ -8,3 +8,4 @@ export * from './api.js';
 export * from './ws.js';
 export * from './chat.js';
 export * from './version.js';
+export * from './computer.js';

@@ -18,6 +18,9 @@ import type { AppContext } from './context.js';
 import type { ServerConfig } from './config.js';
 import { registerFeatures } from './features.js';
 import type { Chat } from './chat/index.js';
+import type { Computers } from './computer/index.js';
+import { NoRuntime } from './computer/index.js';
+import { PodmanRuntime, type ContainerRuntime } from './computer/runtime.js';
 
 export interface BootOptions {
   config: ServerConfig;
@@ -29,6 +32,11 @@ export interface BootOptions {
   /** Outbound fetch for model sources and push (tests point it at local mocks). */
   modelFetch?: typeof fetch;
   processHost?: ProcessHost;
+  /** Bot computers (D-10). Default: Podman, or none when a test supplies its own processHost. */
+  containerRuntime?: ContainerRuntime;
+  /** bot-computer image build context and tag (tests) */
+  imageDir?: string;
+  image?: string;
   testHooks?: AppContext['testHooks'];
 }
 
@@ -37,6 +45,7 @@ export interface Server {
   ctx: AppContext;
   ws: WsGateway;
   chat: Chat;
+  computers: Computers;
   url: string;
   close(): Promise<void>;
 }
@@ -122,7 +131,8 @@ export async function startServer(o: BootOptions): Promise<Server> {
   ctx.identity.onRevoke = (id) => ws.closeDevice(id);
   ctx.identity.onLogout = (id) => ws.closeDevice(id, 4004, 'signed out');
   registerCoreRoutes(app, ctx);
-  const chat = await registerFeatures(app, ctx, ws);
+  const runtime = o.containerRuntime ?? (o.processHost ? new NoRuntime() : new PodmanRuntime());
+  const { chat, computers } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image });
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
 
   await app.listen({ host: o.config.host, port: o.config.port });
@@ -134,6 +144,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
     ctx,
     ws,
     chat,
+    computers,
     url: `https://127.0.0.1:${port}`,
     async close() {
       ws.close();

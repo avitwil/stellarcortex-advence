@@ -42,8 +42,17 @@ export class WsGateway {
     this.handlers.set(type, h);
   }
 
+  private upgrades = new Map<string, (req: IncomingMessage, socket: Duplex, head: Buffer) => void>();
+
+  /** Other WebSocket endpoints (the computer live view) share the TLS listener. */
+  onUpgrade(path: string, h: (req: IncomingMessage, socket: Duplex, head: Buffer) => void): void {
+    this.upgrades.set(path, h);
+  }
+
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    const url = (req.url ?? '').split('?')[0];
+    const url = (req.url ?? '').split('?')[0] ?? '';
+    const other = this.upgrades.get(url);
+    if (other) return other(req, socket, head);
     if (url !== WS_PATH) {
       socket.destroy();
       return;

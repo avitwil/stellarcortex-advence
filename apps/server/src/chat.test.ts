@@ -218,7 +218,7 @@ describe('FR-BOT-01 Bot CRUD', () => {
   it('creates, edits and archives a Bot; the primary Bot exists and cannot be deleted', async () => {
     const list = await owner.request('GET', '/v1/bots');
     const primary = list.json[0];
-    expect(primary).toMatchObject({ primary: true, name: 'Chief of Staff', tools: ['delegate'] });
+    expect(primary).toMatchObject({ primary: true, name: 'Chief of Staff', tools: ['delegate', 'code', 'computer'] });
     expect((await owner.request('DELETE', `/v1/bots/${primary.id}`)).json.error).toBe('cannot_delete_primary');
 
     const b = await bot(owner, { name: 'Writer', avatar: 'W', instructions: 'Write well.', engine: 'opencode' });

@@ -198,6 +198,26 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX activity_user ON activity(user_id, created_at);
   `,
+  // P3: Bot computers, coding engine sessions and activity (FR-PC-*, FR-CODE-*).
+  `
+  ALTER TABLE messages ADD COLUMN steps BLOB;
+  CREATE TABLE computers (
+    bot_id TEXT PRIMARY KEY REFERENCES bots(id),
+    cpus REAL,
+    memory_mb INTEGER,
+    disk_gb INTEGER,
+    disk_full INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE engine_sessions (
+    bot_id TEXT NOT NULL REFERENCES bots(id),
+    conversation_id TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    session BLOB NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (bot_id, conversation_id, engine)
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

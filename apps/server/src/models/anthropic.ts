@@ -39,7 +39,10 @@ function toParams(messages: ModelMessage[]): Anthropic.Beta.BetaMessageParam[] {
       if (content.length) out.push({ role: 'assistant', content });
     } else {
       // All tool results of one turn go back in a single user message.
-      const block: Block = { type: 'tool_result', tool_use_id: m.toolCallId, content: m.content, ...(m.isError ? { is_error: true } : {}) };
+      const content = m.images?.length
+        ? [{ type: 'text' as const, text: m.content || ' ' }, ...m.images.map((p) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: p.mime as 'image/png', data: p.dataB64 } }))]
+        : m.content;
+      const block: Block = { type: 'tool_result', tool_use_id: m.toolCallId, content, ...(m.isError ? { is_error: true } : {}) };
       const last = out[out.length - 1];
       if (last && last.role === 'user' && Array.isArray(last.content) && last.content.every((b) => (b as { type: string }).type === 'tool_result')) {
         (last.content as Block[]).push(block);
