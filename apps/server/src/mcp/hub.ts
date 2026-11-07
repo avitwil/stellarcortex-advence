@@ -5,6 +5,7 @@
 // mode, pushed or as input_required rounds) goes to the user in the chat; task-supporting tools
 // run through the tasks extension (tasks/get polling). Configurations and OAuth state are sealed.
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError, type JSONRPCMessage, type Transport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -18,6 +19,7 @@ import { HttpError } from '../http.js';
 import { newId } from '../ids.js';
 import { InputBroker, type ElicitParams } from './inputs.js';
 import { SealedOAuthProvider } from './oauth.js';
+import { createPublicFetch, isPublicAddress } from './public-fetch.js';
 
 export const TASKS_EXTENSION = 'io.modelcontextprotocol/tasks';
 const IDLE_MS = 10 * 60_000;
@@ -65,11 +67,11 @@ const TaskState = z.looseObject({ taskId: z.string(), status: z.string(), pollIn
 
 /** Hosts a member may not point the server at (they would reach the owner's network). */
 function privateHost(h: string): boolean {
-  const host = h.replace(/^\[|\]$/g, '').toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
-  if (/^(127\.|10\.|0\.|169\.254\.|192\.168\.)/.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return true;
-  if (host.includes(':')) return host === '::1' || host === '::' || /^f[cd]/.test(host) || host.startsWith('fe80') || host.startsWith('::ffff:');
-  return false;
+  const host = h.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
+  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.home.arpa')) return true;
+  if (isIP(host)) return !isPublicAddress(host);
+  // Names are checked again on every connection, by the addresses they resolve to (public-fetch.ts).
+  return !host.includes('.');
 }
 
 /** Tool names the model sees: mcp_<server>_<tool>, within provider limits. */
@@ -129,11 +131,14 @@ export class McpHub implements ToolProvider {
   private als = new AsyncLocalStorage<CallScope>();
   /** sign-ins since the server last accepted a request */
   private reauths = new Map<string, number>();
+  private opening = new Map<string, Promise<Conn>>();
+  private memberFetch: typeof fetch;
   private timer: NodeJS.Timeout;
 
-  constructor(private ctx: AppContext, private bots: Bots, private computers: ComputerManager | null, o: { fetch?: typeof fetch } = {}) {
+  constructor(private ctx: AppContext, private bots: Bots, private computers: ComputerManager | null, o: { fetch?: typeof fetch; memberFetch?: typeof fetch } = {}) {
     this.inputs = new InputBroker(ctx);
     this.fetchImpl = o.fetch ?? fetch;
+    this.memberFetch = o.memberFetch ?? createPublicFetch();
     this.timer = setInterval(() => this.reap(), 60_000);
     this.timer.unref();
   }
@@ -214,6 +219,8 @@ export class McpHub implements ToolProvider {
 
   create(user: User, b: McpServerCreate): McpServer {
     if (b.transport === 'http') this.checkUrl(user, b.url!);
+    // DL-056: local commands are the server owner's.
+    else if (user.role !== 'owner') throw new HttpError(403, 'mcp_stdio_owner_only');
     const c: Config = { name: b.name, transport: b.transport, bots: this.checkBots(user, b.bots), allow: b.allow };
     if (b.transport === 'stdio') {
       c.command = b.command!;
@@ -267,12 +274,13 @@ export class McpHub implements ToolProvider {
     }
     const auth = new SealedOAuthProvider(this.ctx, r.id, c.oauthClient ?? null);
     const member = user.role !== 'owner';
+    // Members: https to public addresses only, checked at connect time, no redirects (DL-056).
     const guarded: typeof fetch = async (input, init) => {
       const u = new URL(input instanceof Request ? input.url : String(input));
-      if (member && (u.protocol !== 'https:' || privateHost(u.hostname))) throw new Error('mcp_url_not_allowed');
-      return this.fetchImpl(input, { ...init, redirect: member ? 'error' : init?.redirect });
+      if (u.protocol !== 'https:' || privateHost(u.hostname)) throw new Error('mcp_url_not_allowed');
+      return this.memberFetch(input, { ...init, redirect: 'error' });
     };
-    return taskAware(new StreamableHTTPClientTransport(new URL(c.url!), { authProvider: auth, requestInit: { headers: c.headers ?? {} }, fetch: guarded }));
+    return taskAware(new StreamableHTTPClientTransport(new URL(c.url!), { authProvider: auth, requestInit: { headers: c.headers ?? {} }, fetch: member ? guarded : this.fetchImpl }));
   }
 
   private newClient(serverId: string, serverName: string, key: string): Client {
@@ -310,6 +318,19 @@ export class McpHub implements ToolProvider {
       had.lastUsed = Date.now();
       return had;
     }
+    // One connection per key: callers that overlap while the transport is being set up share it.
+    const opening = this.opening.get(key);
+    if (opening) return opening;
+    const p = this.openConn(user, r, c, bot, key);
+    this.opening.set(key, p);
+    try {
+      return await p;
+    } finally {
+      this.opening.delete(key);
+    }
+  }
+
+  private async openConn(user: User, r: Row, c: Config, bot: Bot | null, key: string): Promise<Conn> {
     const client = this.newClient(r.id, c.name, key);
     const transport = await this.transportFor(user, r, c, bot);
     const entry: Conn = { client, transport, ready: Promise.resolve(), lastUsed: Date.now(), tools: null, toolsAt: 0, resources: 0, prompts: 0, active: null };

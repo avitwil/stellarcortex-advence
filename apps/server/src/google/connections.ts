@@ -135,7 +135,6 @@ export class GoogleConnections {
     const scopes = (tokens.scope ?? '').split(/\s+/).filter(Boolean);
     if (!servicesOf(scopes).length) throw new HttpError(400, 'google_no_services_granted');
     const now = this.now();
-    const old = this.row(user.id);
     const body: Body = { refreshToken: tokens.refreshToken, accessToken: tokens.accessToken ?? null, accessExpiresAt: now + (tokens.expiresIn ?? 0) * 1000, scopes, email: id.email };
     this.ctx.db
       .prepare(
@@ -143,11 +142,8 @@ export class GoogleConnections {
          ON CONFLICT(user_id) DO UPDATE SET body = excluded.body, state = excluded.state, connected_at = excluded.connected_at, expires_at = excluded.expires_at, reminded_at = NULL`,
       )
       .run(user.id, this.seal(user.id, body), 'ok', now, now + TESTING_LIFETIME_MS);
-    // A new consent replaces the old grant; the old refresh token is revoked.
-    if (old) {
-      const prev = this.open(old);
-      if (prev.refreshToken !== body.refreshToken) void g.revoke(prev.refreshToken);
-    }
+    // The old refresh token is replaced but not revoked: Google's revocation ends the whole grant
+    // for this client and user, which would end the new token too. Disconnect revokes.
     const view = this.get(user);
     this.ctx.bus.publish(user.id, 'google.connection', view);
     return view;

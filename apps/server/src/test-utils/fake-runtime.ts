@@ -123,8 +123,11 @@ export class FakeRuntime implements ContainerRuntime {
     const done = new Promise<{ code: number; stderr: string }>((r) => p.on('close', (code) => r({ code: code ?? -1, stderr })));
     return { lines: readline.createInterface({ input: p.stdout }), done };
   }
+  /** every interactive (stdio) process started, by container name */
+  interactives: string[] = [];
   interactive(name: string, argv: string[], env: Record<string, string>): InteractiveCommand {
     if (!this.containers.get(name)?.running) throw new Error('not running');
+    this.interactives.push(name);
     return { command: argv[0]!, args: argv.slice(1), env: { PATH: `${this.bin}:${process.env.PATH}`, HOME: this.home(name), ...env }, cwd: this.home(name) };
   }
   async diskUsage() { return this.disk; }

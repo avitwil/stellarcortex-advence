@@ -184,6 +184,7 @@ export const en = {
     cost: 'Cost', turns: 'Turns', notReported: 'Not reported', note: 'Numbers are what each provider reported. Costs are shown only where the provider reports them.',
   },
   errors: {
+    mcp_stdio_owner_only: 'Only the server owner can add local commands.',
     mcp_auth_required: 'Sign in to this MCP server first.', mcp_auth_failed: 'Signing in to the MCP server failed.', mcp_unreachable: 'The MCP server cannot be reached.',
     mcp_url_not_allowed: 'Members can add public https servers only.', mcp_server_not_found: 'That MCP server no longer exists.', no_sign_in_needed: 'This server does not need a sign-in.',
     not_http: 'Only web address servers have a sign-in.', enable_for_a_bot_first: 'Turn this server on for a Bot first.', unknown_bot: 'That Bot does not exist.', bot_required: 'Choose at least one Bot.',

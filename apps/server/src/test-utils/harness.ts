@@ -61,6 +61,10 @@ export async function mockGoogle(): Promise<MockGoogle> {
   jwk.kid = 'k1';
   jwk.alg = 'RS256';
   const codes = new Map<string, string>();
+  // Like Google: revoking any token of a grant ends the whole grant (every refresh token of it).
+  const grantOf = new Map<string, string>();
+  const deadGrants = new Set<string>();
+  const subOf = (idToken: string) => (JSON.parse(Buffer.from(idToken.split('.')[1] ?? '', 'base64url').toString()) as { sub: string }).sub;
   const m: MockGoogle = {
     refreshes: 0,
     revoked: [],
@@ -90,6 +94,8 @@ export async function mockGoogle(): Promise<MockGoogle> {
       const body = new URLSearchParams(String(init?.body ?? ''));
       if (String(url) === m.endpoints.revocation) {
         m.revoked.push(body.get('token') ?? '');
+        const g = grantOf.get(body.get('token') ?? '');
+        if (g) deadGrants.add(g);
         return new Response(null, { status: 200 });
       }
       m.lastTokenRequest = body;
@@ -98,11 +104,18 @@ export async function mockGoogle(): Promise<MockGoogle> {
         const t = codes.get(body.get('code') ?? '');
         codes.delete(body.get('code') ?? '');
         if (!t || body.get('client_secret') !== 'test-client-secret-1234') return Response.json({ error: 'invalid_grant' }, { status: 400 });
-        return Response.json({ id_token: t, access_token: 'ya29.test-access-token', refresh_token: `1//test-refresh-token-${toB64url(randomBytes(9))}`, expires_in: 3600, scope: m.grantedScope ?? body.get('scope') ?? '' });
+        const refresh = `1//test-refresh-token-${toB64url(randomBytes(9))}`;
+        const grant = `${subOf(t)}:${toB64url(randomBytes(6))}`;
+        // A new consent after the grant ended starts a new grant; otherwise it joins the live one.
+        const live = [...grantOf.values()].find((x) => x.startsWith(`${subOf(t)}:`) && !deadGrants.has(x));
+        grantOf.set(refresh, live ?? grant);
+        return Response.json({ id_token: t, access_token: 'ya29.test-access-token', refresh_token: refresh, expires_in: 3600, scope: m.grantedScope ?? body.get('scope') ?? '' });
       }
       if (body.get('grant_type') === 'refresh_token') {
         m.refreshes++;
         if (m.refreshError) return Response.json({ error: m.refreshError }, { status: 400 });
+        const g = grantOf.get(body.get('refresh_token') ?? '');
+        if (g && deadGrants.has(g)) return Response.json({ error: 'invalid_grant' }, { status: 400 });
         return Response.json({ access_token: 'ya29.refreshed-access-token', expires_in: 3600 });
       }
       return Response.json({ error: 'unsupported_grant_type' }, { status: 400 });

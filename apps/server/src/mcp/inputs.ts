@@ -11,6 +11,18 @@ export const INPUT_TIMEOUT_MS = 10 * 60_000;
 /** Field names, titles or descriptions that look like a request for a secret. */
 const SECRET = /pass(word|phrase|code)?\b|secret|token|api[\s_-]?key|private[\s_-]?key|credential|\bpin\b|otp|2fa|cvv|card number|סיסמ|סוד|טוקן|מפתח/i;
 
+/** Words that name a secret, matched on the words of a field name or title (snake, kebab, camel case). */
+const SECRET_WORDS = new Set(['password', 'passwords', 'passwd', 'pwd', 'pass', 'passphrase', 'passcode', 'secret', 'secrets', 'token', 'tokens', 'apikey', 'pin', 'otp', 'totp', '2fa', 'mfa', 'cvv', 'cvc', 'credential', 'credentials', 'privatekey', 'seed', 'mnemonic']);
+const SECRET_PAIRS = new Set(['api key', 'private key', 'card number', 'access key', 'security code', 'recovery phrase']);
+
+function secretName(s: string): boolean {
+  const words = s.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9\u0590-\u05ff]+/).filter(Boolean);
+  for (let i = 0; i < words.length; i++) {
+    if (SECRET_WORDS.has(words[i]!) || (i > 0 && SECRET_PAIRS.has(`${words[i - 1]} ${words[i]}`))) return true;
+  }
+  return /סיסמ|סוד|טוקן|מפתח/.test(s);
+}
+
 export interface ElicitParams {
   mode?: 'form' | 'url';
   message: string;
@@ -31,7 +43,7 @@ export function asksForSecret(schema: Record<string, unknown> | undefined, messa
   // not to enter ("do not give us your PIN").
   const props = (schema?.properties ?? {}) as Record<string, { title?: unknown; format?: unknown }>;
   for (const [k, v] of Object.entries(props)) {
-    if (SECRET.test(k) || SECRET.test(String(v?.title ?? '')) || v?.format === 'password') return true;
+    if (secretName(k) || secretName(String(v?.title ?? '')) || v?.format === 'password') return true;
   }
   return false;
 }

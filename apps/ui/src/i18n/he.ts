@@ -186,6 +186,7 @@ export const he: Strings = {
     cost: 'עלות', turns: 'סבבים', notReported: 'לא דווח', note: 'המספרים הם מה שכל ספק דיווח. עלות מוצגת רק כשהספק מדווח עליה.',
   },
   errors: {
+    mcp_stdio_owner_only: 'רק בעל השרת יכול להוסיף פקודות מקומיות.',
     mcp_auth_required: 'קודם צריך להתחבר לשרת ה-MCP הזה.', mcp_auth_failed: 'ההתחברות לשרת ה-MCP נכשלה.', mcp_unreachable: 'אין גישה לשרת ה-MCP.',
     mcp_url_not_allowed: 'חברים יכולים להוסיף רק שרתי https ציבוריים.', mcp_server_not_found: 'שרת ה-MCP הזה כבר לא קיים.', no_sign_in_needed: 'השרת הזה לא צריך התחברות.',
     not_http: 'רק לשרתים בכתובת אינטרנט יש התחברות.', enable_for_a_bot_first: 'קודם הפעילו את השרת הזה לבוט.', unknown_bot: 'הבוט הזה לא קיים.', bot_required: 'בחרו לפחות בוט אחד.',

@@ -155,6 +155,35 @@ Teach a Bot a short process, export the skill from Settings → Skills, and unzi
 Install one public entry from skills.sh and one public GitHub skill folder. Pass: both show the
 review with SKILL.md, file list and scan, and become active only after approval.
 
+## P5
+
+### MC-P5-GOOGLE: four Google services with a real test account (FR-GGL-04, FR-GGL-06)
+With the Google project in Testing mode and a test user, sign in to the app and press "Connect
+Google" on the card shown after login. Pass: one consent screen lists Gmail, Calendar, Drive and
+Contacts; Settings → Google shows all four as connected; a Bot can search and read mail, create a
+draft and send it to yourself, list and create a calendar event, find and read a Drive file,
+upload a file, and look up a contact.
+
+### MC-P5-GOOGLE-EXPIRY: the real 7-day limit (FR-GGL-05)
+Keep the connection from MC-P5-GOOGLE for 7 days. Pass: on day 6 a notification and the reminder
+card appear; after day 7 the card and Settings show "reconnect" and Google tools say so; one tap
+on "Reconnect" restores all four services.
+
+### MC-P5-GOOGLE-ANDROID: consent on a phone (FR-GGL-04)
+On Android, press "Connect Google". Pass: Google's own consent sheet appears once and Settings →
+Google then shows the four services.
+
+### MC-P5-MCP-SIGNIN: sign-in to a real protected MCP server (FR-MCP-03)
+Add a public MCP server that needs OAuth and press "Sign in" on the desktop app, then in the
+browser UI. Pass: the browser opens the provider's page; the desktop finishes on its own, the
+browser UI finishes after pasting the address; tools then list and a Bot can call one.
+
+### MC-P5-CLAUDE-CODE: Claude Code reaches the Bots (FR-MCP-04)
+In Settings → MCP, create an access token and download the certificate. On the owner's PC, add
+the endpoint to Claude Code as an HTTP MCP server with the header `Authorization: Bearer <token>`
+and `NODE_EXTRA_CA_CERTS` set to the certificate. Pass: Claude Code lists the Bots and routines,
+sends a message to a Bot and gets its reply, and reads a Library file.
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|

@@ -118,8 +118,8 @@ describe('FR-GGL-04 one consent connects Gmail, Calendar, Drive and Contacts', (
     expect(c.missing.sort()).toEqual(['contacts', 'drive']);
     expect(names()).not.toContain('google_drive_search');
     expect((await tool('google_drive_search', { query: 'x' })).isError).toBe(true);
-    // The replaced grant was revoked at Google.
-    expect(env.google.revoked.length).toBeGreaterThan(0);
+    // Re-consent does not revoke: at Google that would end the new grant as well.
+    expect(env.google.revoked).toEqual([]);
     await connect(owner, 'owner-sub', 'owner@example.com');
   });
 
@@ -188,6 +188,13 @@ describe('FR-GGL-05 7-day expiry in Testing mode', () => {
       expect(c.state).toBe('ok');
       expect(c.expiresAt).toBe(start + 14 * DAY + 120_000);
       expect(names()).toContain('google_gmail_search');
+      // The new grant keeps working once its access token has to be refreshed.
+      api.validTokens.delete('ya29.test-access-token');
+      try {
+        expect((await tool('google_gmail_search', { query: 'x' })).isError).toBeFalsy();
+      } finally {
+        api.validTokens.add('ya29.test-access-token');
+      }
     } finally {
       off();
       conns().now = real;

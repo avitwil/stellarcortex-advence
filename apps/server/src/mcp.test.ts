@@ -11,6 +11,7 @@ import { FakeRuntime } from './test-utils/fake-runtime.js';
 import { everythingEntry, pinnedFetch, startEverythingHttp, startLegacyMcp, startProtectedMcp, type ProtectedMcp, type Running } from './test-utils/mcp-fixtures.js';
 import { toolName } from './mcp/hub.js';
 import { asksForSecret } from './mcp/inputs.js';
+import { createPublicFetch, isPublicAddress } from './mcp/public-fetch.js';
 import type { ToolCall } from './models/types.js';
 
 let models: MockModels;
@@ -83,6 +84,16 @@ afterAll(async () => {
 });
 
 describe('FR-MCP-01 MCP client over stdio (in the Bot computer) and Streamable HTTP', () => {
+  it('overlapping calls share one stdio process per Bot', async () => {
+    const bot = await newBot('Overlap');
+    const s = await req(owner, 'POST', '/v1/mcp/servers', { name: 'Twice', transport: 'stdio', command: everythingCmd(), bots: [bot.id] });
+    const before = rt.interactives.length;
+    const both = await Promise.all([1, 2, 3].map(() => hub().check(user, s.id, bot.id)));
+    expect(both.map((x) => x.status)).toEqual(['ok', 'ok', 'ok']);
+    expect(rt.interactives.length - before).toBe(1);
+    await req(owner, 'DELETE', `/v1/mcp/servers/${s.id}`);
+  }, 60_000);
+
   it('runs the everything server over stdio in the Bot computer and a Bot calls its echo tool from chat', async () => {
     const bot = await newBot('Stdio');
     const s = await req(owner, 'POST', '/v1/mcp/servers', { name: 'Everything', transport: 'stdio', command: everythingCmd(), env: { EVERYTHING_NOTE: 'secret-env-value' }, bots: [bot.id] });
@@ -214,6 +225,12 @@ describe('FR-MCP-02 2026-07-28 features with fallback to 2025-11-25', () => {
     expect(asksForSecret({ properties: { x: { type: 'string', format: 'password' } } }, 'Setup')).toBe(true);
     expect(asksForSecret({ properties: { name: { type: 'string' } } }, 'Please enter your password below')).toBe(true);
     expect(asksForSecret({ properties: { n: { type: 'integer', description: 'do not give us your pin' } } }, 'Favourites')).toBe(false);
+    for (const k of ['password_confirm', 'pass_phrase', 'passwd', 'pwd', 'pin_code', 'userPassword', 'apiKey', 'api-key', 'otp_code', 'card_number']) {
+      expect(asksForSecret({ properties: { [k]: { type: 'string' } } }, 'Setup'), k).toBe(true);
+    }
+    for (const k of ['name', 'spinner', 'opinion', 'compass', 'pinned_note', 'tokenizer_mode']) {
+      expect(asksForSecret({ properties: { [k]: { type: 'string' } } }, 'Setup'), k).toBe(false);
+    }
   });
 });
 
@@ -341,6 +358,27 @@ describe('FR-MCP-04 this server as an MCP server', () => {
     return client;
   }
 
+  it('FR-MCP-05 members\' fetch reaches public https servers only, by the address the name resolves to', async () => {
+    // Streams a real MCP session through the member fetch when the address check lets it pass.
+    const open = createPublicFetch({ allowAddress: () => true, ca: cert });
+    const client = new Client({ name: 'member-fetch', version: '1.0.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(endpoint), { fetch: open, requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+    expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+    await client.close();
+    // The real check refuses this loopback address, and names that resolve to private addresses.
+    const strict = createPublicFetch({ ca: cert });
+    await expect(strict(endpoint, { method: 'POST', body: '{}' })).rejects.toThrow(/mcp_url_not_allowed/);
+    for (const addr of ['10.0.0.5', '169.254.169.254', '127.0.0.1', '::1', '::ffff:127.0.0.1', 'fd00::1', 'fe90::1']) {
+      const f = createPublicFetch({ lookup: (_h, _o, cb) => cb(null, [{ address: addr, family: addr.includes(':') ? 6 : 4 }]) });
+      await expect(f('https://rebind.example/mcp'), addr).rejects.toThrow(/mcp_url_not_allowed/);
+    }
+    const mixed = createPublicFetch({ lookup: (_h, _o, cb) => cb(null, [{ address: '93.184.215.14', family: 4 }, { address: '10.1.2.3', family: 4 }]) });
+    await expect(mixed('https://mixed.example/mcp')).rejects.toThrow(/mcp_url_not_allowed/);
+    await expect(createPublicFetch()('http://example.com/mcp')).rejects.toThrow(/mcp_url_not_allowed/);
+    expect(['8.8.8.8', '2606:4700:4700::1111'].every(isPublicAddress)).toBe(true);
+    expect(['100.64.0.1', '172.16.0.1', '192.168.0.1', '::ffff:7f00:1', '64:ff9b::a00:1', 'fe80::1', 'febf::1'].some(isPublicAddress)).toBe(false);
+  }, 60_000);
+
   for (const mode of ['auto', 'legacy'] as const) {
     it(`an external client lists and messages Bots (${mode === 'auto' ? '2026-07-28' : '2025-11-25'})`, async () => {
       const bot = await newBot(`Reachable ${mode}`);
@@ -429,10 +467,13 @@ describe('FR-MCP-05 management', () => {
   }, 60_000);
 
   it('keeps members to public HTTPS servers, their own servers and no owner settings', async () => {
-    for (const url of ['http://example.com/mcp', 'https://127.0.0.1/mcp', 'https://10.0.0.5/mcp', 'https://192.168.1.1/mcp', 'https://localhost/mcp', 'https://[::1]/mcp']) {
+    for (const url of ['http://example.com/mcp', 'https://127.0.0.1/mcp', 'https://10.0.0.5/mcp', 'https://192.168.1.1/mcp', 'https://localhost/mcp', 'https://[::1]/mcp', 'https://localhost./mcp', 'https://intranet/mcp', 'https://[::ffff:10.0.0.1]/mcp', 'https://[fe90::1]/mcp']) {
       const r = await member.request('POST', '/v1/mcp/servers', { name: 'Nope', transport: 'http', url });
       expect(r.status, url).toBe(403);
     }
+    // Local commands are the owner's (DL-056).
+    const stdio = await member.request('POST', '/v1/mcp/servers', { name: 'Cmd', transport: 'stdio', command: 'id' });
+    expect([stdio.status, stdio.json.error]).toEqual([403, 'mcp_stdio_owner_only']);
     const ok = await member.request('POST', '/v1/mcp/servers', { name: 'Public', transport: 'http', url: 'https://mcp.example.com/mcp' });
     expect(ok.status).toBe(200);
     // Members see only their own servers; the owner's servers are invisible to them and vice versa.
