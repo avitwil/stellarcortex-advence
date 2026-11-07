@@ -150,7 +150,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('openExternal', (_e, url: string) => {
     const u = new URL(String(url));
-    if (u.protocol === 'https:') return shell.openExternal(u.toString());
+    if (u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'mailto:') return shell.openExternal(u.toString());
   });
   ipcMain.on('notify', (_e, title: string, body: string) => {
     if (Notification.isSupported()) new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 500) }).show();
