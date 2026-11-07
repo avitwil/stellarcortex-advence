@@ -231,7 +231,9 @@ export class PodmanRuntime implements ContainerRuntime {
 
   async setSecret(name: string, value: string): Promise<void> {
     await this.run(['secret', 'rm', name]);
-    await this.must(['secret', 'create', name, '-'], { stdin: value });
+    // `-` (stdin) needs a FIFO, and Node pipes are sockets: pass the value in the child's
+    // environment instead, so it is never on the command line.
+    await this.must(['secret', 'create', '--env=true', name, 'ADVENCE_SECRET_VALUE'], { env: { ADVENCE_SECRET_VALUE: value } });
   }
 
   async removeSecret(name: string): Promise<void> {

@@ -62,7 +62,13 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
     const t0 = Date.now();
     const b = await req('POST', '/v1/bots', { name: 'Real', sourceId: src.id, model: 'mock-model', engine: 'opencode', tools: ['code', 'computer'] });
     botId = b.id;
-    await until(async () => (await req('GET', `/v1/bots/${b.id}/computer`)).state === 'running', 120_000);
+    try {
+      await until(async () => (await req('GET', `/v1/bots/${b.id}/computer`)).state === 'running', 120_000);
+    } catch (e) {
+      console.error('computer state:', JSON.stringify(await req('GET', `/v1/bots/${b.id}/computer`)));
+      console.error(env.logs.filter((l) => /computer|podman|warn|error/i.test(l)).slice(-30).join('\n'));
+      throw e;
+    }
     // FR-PC-01: running within 60 s once the image is cached.
     expect(Date.now() - t0).toBeLessThan(60_000);
   }, 180_000);
