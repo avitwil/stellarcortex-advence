@@ -54,6 +54,8 @@ jobs:
           sudo apt-get install -y -qq passt
           podman info --format '{{.Host.CgroupsVersion}} {{.Host.CgroupManager}} rootless={{.Host.Security.Rootless}} pasta={{.Host.Pasta.Executable}}'
           cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers || true
+          echo "apparmor_restrict_unprivileged_userns=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)"
+          sudo aa-status 2>/dev/null | grep -iE 'podman|crun|runc|unpriv|chrom' || true
       - name: Build bot computer image (Podman, D-09)
         run: podman build -t localhost/advence-bot-computer:ci images/bot-computer
       - name: Smoke test

@@ -122,8 +122,9 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
   it('FR-PC-04 Chromium runs with its sandbox on, without --no-sandbox', async () => {
     const flags = (await sh('grep -rlI -- "--no-sandbox" /usr/bin/chromium* /etc/chromium* /usr/lib/chromium* 2>/dev/null; true')).out;
     expect(flags).toBe('');
-    const r = await sh('timeout 90 chromium --headless=new --no-first-run --disable-gpu --virtual-time-budget=5000 --dump-dom chrome://sandbox 2>/dev/null', 120_000);
-    expect(r.out).toMatch(/You are adequately sandboxed/);
+    const r = await sh('timeout 90 chromium --headless=new --no-first-run --disable-gpu --virtual-time-budget=5000 --dump-dom chrome://sandbox 2>/tmp/chromium.err', 120_000);
+    const why = r.out ? '' : (await sh('tail -n 25 /tmp/chromium.err; unshare -Ur true && echo userns-ok || echo userns-denied; cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null; cat /proc/self/attr/current 2>/dev/null')).out;
+    expect(r.out, why).toMatch(/You are adequately sandboxed/);
     expect(r.out).not.toMatch(/not adequately sandboxed/i);
   }, 150_000);
 
