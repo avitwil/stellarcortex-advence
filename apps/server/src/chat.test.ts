@@ -270,7 +270,7 @@ describe('FR-BOT-02 the primary Bot delegates and summarizes', () => {
       ['bot', 'The capital is Paris.'],
     ]);
     const act = await owner.request('GET', '/v1/activity');
-    expect(act.json.some((a: any) => a.kind === 'delegate' && a.summary === 'Chief of Staff delegated a task to Researcher')).toBe(true);
+    expect(act.json.some((a: any) => a.kind === 'delegate' && a.params.bot === 'Chief of Staff' && a.params.target === 'Researcher')).toBe(true);
   });
 });
 

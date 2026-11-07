@@ -223,8 +223,9 @@ export const ActivityEntry = z.object({
   id: z.string(),
   at: z.number(),
   botId: z.string().nullable(),
+  /** rendered by the client from its i18n strings: activity.kinds.<kind> */
   kind: z.string(),
-  summary: z.string(),
+  params: z.record(z.string(), z.string()),
 });
 export type ActivityEntry = z.infer<typeof ActivityEntry>;
 

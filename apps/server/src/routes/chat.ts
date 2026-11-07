@@ -37,7 +37,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
   route('POST', '/v1/sources', 'session', (req) => {
     const user = userOf(req);
     const s = sources.create(user, parse(CreateModelSourceReq, req.body));
-    activity.log(user.id, null, 'source.created', `Model source "${s.name}" (${s.kind}) added`);
+    activity.log(user.id, null, 'source.created', { name: s.name, kind: s.kind });
     return s;
   });
   route('PATCH', '/v1/sources/:id', 'session', (req) => sources.update(userOf(req), params(req).id!, parse(UpdateModelSourceReq, req.body)));
@@ -46,7 +46,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
     const r = sources.owned(user, params(req).id!);
     logins.cancel(r.id);
     sources.delete(user, r.id);
-    activity.log(user.id, null, 'source.deleted', `Model source "${r.name}" removed`);
+    activity.log(user.id, null, 'source.deleted', { name: r.name });
   });
   route('GET', '/v1/sources/:id/models', 'session', async (req) => {
     const user = userOf(req);
@@ -78,7 +78,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
   route('POST', '/v1/bots', 'session', (req) => {
     const user = userOf(req);
     const b = bots.create(user, parse(CreateBotReq, req.body));
-    activity.log(user.id, b.id, 'bot.created', `Bot "${b.name}" created`);
+    activity.log(user.id, b.id, 'bot.created', { bot: b.name });
     botEvent(user, b.id);
     return b;
   });
@@ -86,7 +86,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
   route('PATCH', '/v1/bots/:id', 'session', (req) => {
     const user = userOf(req);
     const b = bots.update(user, params(req).id!, parse(UpdateBotReq, req.body));
-    activity.log(user.id, b.id, 'bot.updated', `Bot "${b.name}" updated`);
+    activity.log(user.id, b.id, 'bot.updated', { bot: b.name });
     botEvent(user, b.id);
     return b;
   });
@@ -94,7 +94,7 @@ export function registerChatRoutes(app: import('fastify').FastifyInstance, ctx: 
     const user = userOf(req);
     const b = bots.owned(user, params(req).id!);
     bots.archive(user, b.id);
-    activity.log(user.id, b.id, 'bot.archived', `Bot "${b.name}" deleted (archived)`);
+    activity.log(user.id, b.id, 'bot.archived', { bot: b.name });
     botEvent(user, b.id);
   });
   route('GET', '/v1/bots/:id/activity', 'session', (req) => {

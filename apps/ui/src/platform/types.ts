@@ -36,5 +36,7 @@ export interface PlatformBridge {
   googleSignIn(p: { authUrl?: string; clientId?: string }): Promise<{ code?: string; state?: string; idToken?: string } | 'paste'>;
   canScanQr: boolean;
   notify(title: string, body: string): void;
+  /** Android: registers with the UnifiedPush distributor for this push server; returns the endpoint. */
+  registerPush?(pushServer: string): Promise<string | null>;
   openExternal(url: string): void;
 }

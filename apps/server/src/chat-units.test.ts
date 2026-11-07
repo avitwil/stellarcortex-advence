@@ -62,3 +62,10 @@ describe('D-07c subscription CLIs', () => {
     expect(fs.readFileSync(path.join(dir, 'env'), 'utf8')).toBe('secret-value');
   });
 });
+
+describe('FR-UI-01 conversation previews', () => {
+  it('are one line of plain text', async () => {
+    const { previewOf } = await import('./chat/store.js');
+    expect(previewOf('Here is **bold** and a list:\n\n- one\n- two\n\nSee [docs](https://x.test/a.pdf).')).toBe('Here is bold and a list: one two See docs.');
+  });
+});

@@ -8,11 +8,13 @@ import os from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import { startTestServer, configureGoogle, pairedClient, type TestEnv } from '../../apps/server/src/test-utils/harness.js';
+import { MockModels } from '../../apps/server/src/test-utils/mock-models.js';
 
 const DESKTOP = path.resolve(__dirname, '../../apps/desktop');
 let env: TestEnv;
 let xvfb: ChildProcess | undefined;
 let app: ElectronApplication | undefined;
+let models: MockModels;
 
 beforeAll(async () => {
   if (!process.env.DISPLAY) {
@@ -20,6 +22,7 @@ beforeAll(async () => {
     process.env.DISPLAY = ':97';
     await new Promise((r) => setTimeout(r, 800));
   }
+  models = await MockModels.start();
   env = await startTestServer();
   // Google is configured by an earlier device so this run goes straight to sign-in.
   await configureGoogle(await pairedClient(env));
@@ -32,6 +35,7 @@ afterAll(async () => {
     if (proc.exitCode === null) proc.kill('SIGKILL');
   }
   await env?.close();
+  await models?.close();
   xvfb?.kill();
 });
 
@@ -87,9 +91,16 @@ describe('P1 exit: desktop (Electron) end to end', () => {
     expect(cb.status).toBe(200);
 
     await page.getByRole('img', { name: 'Connected' }).waitFor({ timeout: 20000 });
-    await page.getByLabel('Message StellarCortex…').fill('hello desktop');
+    // P2 exit on desktop: chat with a Bot through a model source (a local OpenAI-compatible server).
+    const { id: uid } = env.server.ctx.db.prepare("SELECT id FROM users WHERE email = 'owner@example.com'").get() as { id: string };
+    const user = env.server.ctx.identity.getUser(uid)!;
+    const src = env.server.chat.sources.create(user, { kind: 'local', name: 'Mock', baseUrl: `${models.url}/v1` });
+    const primary = env.server.chat.bots.list(user)[0]!;
+    env.server.chat.bots.update(user, primary.id, { sourceId: src.id, model: 'mock-model-a' });
+    await page.getByRole('button', { name: /Chief of Staff/ }).click();
+    await page.getByLabel('Message Chief of Staff…').fill('hello desktop');
     await page.getByRole('button', { name: 'Send' }).click();
-    await page.getByText('Server replied: “hello desktop”').waitFor();
+    await page.locator('.md', { hasText: 'Echo: hello desktop' }).waitFor();
     await page.screenshot({ path: path.resolve(__dirname, '../../.tmp/p1-desktop.png') });
     // exactly one device key is stored (none kept for the blocked server)
     const files = fs.readdirSync(path.join(userData, 'secrets'));

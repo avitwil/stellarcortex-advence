@@ -173,7 +173,7 @@ export class ChatRuntime {
       final = store.finishMessage(placeholder.id, text, 'error', code);
       if (code !== 'stopped') {
         this.ctx.log.warn({ bot: bot.id, code }, 'bot reply failed');
-        this.s.activity.log(user.id, bot.id, 'reply.error', `${bot.name} could not reply: ${code}`);
+        this.s.activity.log(user.id, bot.id, 'reply.error', { bot: bot.name, code });
       }
     } finally {
       this.running.delete(placeholder.id);
@@ -195,7 +195,7 @@ export class ChatRuntime {
         this.ctx.db.prepare('UPDATE messages SET body = ? WHERE id = ?').run(this.ctx.crypto.sealContent(JSON.stringify({ ...body, mentions: next }), `msg:${final.id}`), final.id);
         for (const id of next) {
           const target = others.find((b) => b.id === id)!;
-          this.s.activity.log(user.id, bot.id, 'handoff', `${bot.name} handed work to ${target.name}`);
+          this.s.activity.log(user.id, bot.id, 'handoff', { bot: bot.name, target: target.name });
           this.track(this.respond(user, target, convId, parentId, { hop: o.hop + 1, depth: o.depth, signal: o.signal }));
         }
       }
@@ -269,7 +269,7 @@ export class ChatRuntime {
     const task = this.s.store.insertMessage({ convId: conv, author: 'system', text: `${bot.name}: ${p.data.task}` });
     this.s.search.put(user.id, task);
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageCreated, this.s.store.toMessage(task, user.id));
-    this.s.activity.log(user.id, bot.id, 'delegate', `${bot.name} delegated a task to ${target.name}`);
+    this.s.activity.log(user.id, bot.id, 'delegate', { bot: bot.name, target: target.name });
     const r = await this.respond(user, target, conv, null, { hop: 0, depth: o.depth + 1, signal });
     if (!r.ok) return fail(`${target.name} could not finish the task.`);
     return { role: 'tool', toolCallId: call.id, content: r.text.slice(0, 50_000) };

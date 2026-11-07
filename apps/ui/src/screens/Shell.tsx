@@ -8,14 +8,16 @@ import { Icon, Logo } from '../ui/Icon';
 import { Settings, type SectionId } from './Settings';
 import type { SocketState } from '../api/socket';
 import { shellExtension } from './shell-registry';
+import { useChat } from '../state/chat';
 
-export type View = { kind: 'home' } | { kind: 'settings'; section?: SectionId } | { kind: string; id?: string; section?: string };
+export interface View { kind: 'home' | 'settings' | 'conv' | 'library' | 'activity'; id?: string; section?: SectionId; focus?: string }
 
 export function Shell() {
   const { t } = useTranslation();
   const { client, user } = useStore();
   const [view, setView] = useState<View>({ kind: 'home' });
   const [sock, setSock] = useState<SocketState>('connecting');
+  useEffect(() => useChat.getState().attach(client), [client]);
   useEffect(() => {
     if (!client) return;
     const s = client.openSocket();

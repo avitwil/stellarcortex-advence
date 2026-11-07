@@ -16,6 +16,17 @@ export interface MsgRow {
 }
 interface Body { text: string; mentions: string[] }
 
+/** One line of plain text for the conversation list: markdown links, emphasis and code marks removed. */
+export function previewOf(text: string): string {
+  return text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`#>~|]+/g, '')
+    .replace(/^\s*[-+]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
 export class ChatStore {
   readonly attachmentsDir: string;
   constructor(private ctx: AppContext) {
@@ -95,7 +106,7 @@ export class ChatStore {
       title: this.title(c),
       botIds: this.botIds(c.id),
       updatedAt: c.updated_at,
-      lastPreview: last ? this.body(last).text.replace(/\s+/g, ' ').slice(0, 120) : '',
+      lastPreview: last ? previewOf(this.body(last).text) : '',
       unread,
     };
   }
