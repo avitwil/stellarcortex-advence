@@ -9,6 +9,8 @@ import { Settings, type SectionId } from './Settings';
 import type { SocketState } from '../api/socket';
 import { shellExtension } from './shell-registry';
 import { useChat } from '../state/chat';
+import { useIntegrations } from '../state/integrations';
+import { IntegrationTray } from './chat/Integrations';
 
 export interface View { kind: 'home' | 'settings' | 'conv' | 'library' | 'activity'; id?: string; section?: SectionId; focus?: string }
 
@@ -18,6 +20,7 @@ export function Shell() {
   const [view, setView] = useState<View>({ kind: 'home' });
   const [sock, setSock] = useState<SocketState>('connecting');
   useEffect(() => useChat.getState().attach(client), [client]);
+  useEffect(() => useIntegrations.getState().attach(client), [client]);
   useEffect(() => {
     if (!client) return;
     const s = client.openSocket();
@@ -56,6 +59,7 @@ export function Shell() {
       <main className="main">
         <Main view={view} setView={setView} socketState={sock} />
       </main>
+      <IntegrationTray openSettings={(section) => setView({ kind: 'settings', section })} />
     </div>
   );
 }

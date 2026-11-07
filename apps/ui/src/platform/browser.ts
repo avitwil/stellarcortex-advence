@@ -109,6 +109,10 @@ export function browserBridge(): PlatformBridge {
       if (p.authUrl) window.open(p.authUrl, '_blank', 'noopener,noreferrer');
       return 'paste';
     },
+    async authorize(authUrl) {
+      window.open(authUrl, '_blank', 'noopener,noreferrer');
+      return 'paste';
+    },
     canScanQr: typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia,
     notify(title, body) {
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body });

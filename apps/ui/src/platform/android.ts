@@ -61,6 +61,16 @@ export function androidBridge(): PlatformBridge {
       const r = await gsi.signIn({ serverClientId: p.clientId });
       return { idToken: r.idToken };
     },
+    async authorize(authUrl) {
+      // A Custom Tab; the user copies the localhost address it ends on (DL-057).
+      window.open(authUrl, '_blank', 'noopener,noreferrer');
+      return 'paste';
+    },
+    async googleAuthorize(p) {
+      const r = await gsi.authorize({ serverClientId: p.clientId, scopes: p.scopes });
+      if (typeof r.serverAuthCode !== 'string') throw new Error('no server auth code');
+      return { serverAuthCode: r.serverAuthCode };
+    },
     canScanQr: true,
     async registerPush(pushServer) {
       const r = await P.Push!.register({ pushServer });

@@ -34,6 +34,14 @@ export interface PlatformBridge {
   deleteSecret(name: string): Promise<void>;
   /** Google sign-in: desktop returns a code via loopback, Android returns an ID token. */
   googleSignIn(p: { authUrl?: string; clientId?: string }): Promise<{ code?: string; state?: string; idToken?: string } | 'paste'>;
+  /**
+   * Any OAuth authorization in the system browser with the loopback redirect (Google services,
+   * MCP servers): desktop returns the full callback URL; browser and Android open the page and
+   * the user pastes the address they land on.
+   */
+  authorize(authUrl: string): Promise<{ callbackUrl: string } | 'paste'>;
+  /** Android: Google's authorization client for the service scopes; returns a server auth code. */
+  googleAuthorize?(p: { clientId: string; scopes: string[] }): Promise<{ serverAuthCode: string }>;
   canScanQr: boolean;
   notify(title: string, body: string): void;
   /** Android: registers with the UnifiedPush distributor for this push server; returns the endpoint. */

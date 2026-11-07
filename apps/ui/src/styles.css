@@ -256,3 +256,9 @@ textarea.input { resize: vertical; }
 /* P4: skill review (SKILL.md, diffs) */
 pre.code { margin: 0; padding: 10px 12px; background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 360px; overflow: auto; font-family: var(--mono); font-size: 12px; direction: ltr; text-align: left; white-space: pre; }
 details > summary { cursor: pointer; }
+
+/* P5: what MCP servers and Google are waiting on (input requests, connect, paste step) */
+.tray { position: fixed; inset-inline-end: 16px; bottom: 16px; width: min(440px, calc(100vw - 32px)); max-height: 75vh; overflow-y: auto; z-index: 40; }
+.tray:empty { display: none; }
+.tray > .card { box-shadow: 0 8px 28px rgb(0 0 0 / 0.25); }
+.toggle-list { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }

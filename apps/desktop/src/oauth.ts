@@ -1,10 +1,10 @@
-// Loopback receiver for desktop Google sign-in (D-13, DL-006): listens on
+// Loopback receiver for desktop Google sign-in and MCP sign-in (D-13, DL-006, DL-057): listens on
 // localhost:47823 only for the duration of one sign-in.
 import http from 'node:http';
 
 export const LOOPBACK_PORT = 47823;
 
-export function waitForOAuthCode(opts: { timeoutMs?: number; port?: number; page?: string } = {}): { ready: Promise<void>; result: Promise<{ code: string; state: string }>; cancel(): void } {
+export function waitForOAuthCode(opts: { timeoutMs?: number; port?: number; page?: string } = {}): { ready: Promise<void>; result: Promise<{ code: string; state: string; callbackUrl: string }>; cancel(): void } {
   let server: http.Server;
   let timer: NodeJS.Timeout;
   let readyResolve!: () => void;
@@ -14,7 +14,7 @@ export function waitForOAuthCode(opts: { timeoutMs?: number; port?: number; page
     readyReject = rej;
   });
   let rejectResult!: (e: Error) => void;
-  const result = new Promise<{ code: string; state: string }>((resolve, reject) => {
+  const result = new Promise<{ code: string; state: string; callbackUrl: string }>((resolve, reject) => {
     rejectResult = reject;
     server = http.createServer((req, res) => {
       const u = new URL(req.url ?? '/', `http://localhost:${LOOPBACK_PORT}`);
@@ -28,7 +28,8 @@ export function waitForOAuthCode(opts: { timeoutMs?: number; port?: number; page
       res.end(opts.page ?? '<!doctype html><meta charset="utf-8"><title>StellarCortex Advence</title><body style="font-family:system-ui;padding:40px">You can close this tab and return to StellarCortex Advence.</body>');
       clearTimeout(timer);
       server.close();
-      if (code && state) resolve({ code, state });
+      // The full callback goes back too: MCP sign-in checks its iss parameter (RFC 9207).
+      if (code && state) resolve({ code, state, callbackUrl: u.href });
       else reject(new Error(u.searchParams.get('error') ?? 'no code'));
     });
     server.on('error', (e) => {

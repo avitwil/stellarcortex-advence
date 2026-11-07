@@ -45,13 +45,13 @@ describe('NFR-SEC-01 desktop pinning (main-process pinned agent)', () => {
   });
 });
 
-describe('FR-GGL-02 desktop loopback receiver', () => {
-  it('returns code and state once and stops listening', async () => {
+describe('FR-GGL-02 / FR-MCP-03 desktop loopback receiver', () => {
+  it('returns code, state and the full callback (with iss) once and stops listening', async () => {
     const w = waitForOAuthCode({ port: 47999, timeoutMs: 5000 });
     await w.ready;
-    const r = await fetch('http://127.0.0.1:47999/oauth/callback?code=abc&state=xyz');
+    const r = await fetch('http://127.0.0.1:47999/oauth/callback?code=abc&state=xyz&iss=https%3A%2F%2Fauth.example');
     expect(r.status).toBe(200);
-    expect(await w.result).toEqual({ code: 'abc', state: 'xyz' });
+    expect(await w.result).toEqual({ code: 'abc', state: 'xyz', callbackUrl: 'http://localhost:47823/oauth/callback?code=abc&state=xyz&iss=https%3A%2F%2Fauth.example' });
     await expect(fetch('http://127.0.0.1:47999/oauth/callback?code=x&state=y')).rejects.toThrow();
   });
 });

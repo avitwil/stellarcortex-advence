@@ -23,6 +23,7 @@ and is listed in the generated section at the end of this file.
 | Capacitor Android runtime (com.capacitorjs) | MIT | Android shell (D-05) |
 | AndroidX (appcompat, coordinatorlayout, core-splashscreen, credentials, credentials-play-services-auth) | Apache-2.0 | Android shell, Credential Manager sign-in |
 | Google Identity googleid | Apache-2.0 | Sign in with Google option for Credential Manager |
+| Google Play services auth (com.google.android.gms:play-services-auth) | Android SDK License (free, not GPL; from Google's Maven) | Authorization client for the Google services consent (FR-GGL-04) |
 | OkHttp 4.12 / Okio | Apache-2.0 | Pinned HTTPS and WebSocket (NFR-SEC-01) |
 | Conscrypt (org.conscrypt:conscrypt-android) | Apache-2.0 | TLS 1.3 provider on Android 9 |
 | UnifiedPush connector 3.3.5 (org.unifiedpush.android:connector) | Apache-2.0 | Push wake-ups through the ntfy app (D-18) |

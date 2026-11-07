@@ -11,7 +11,7 @@ export interface DesktopApi {
   loadSecret(name: string): Promise<string | null>;
   saveSecret(name: string, value: string): Promise<void>;
   deleteSecret(name: string): Promise<void>;
-  oauthLoopback(authUrl: string): Promise<{ code: string; state: string }>;
+  oauthLoopback(authUrl: string): Promise<{ code: string; state: string; callbackUrl: string }>;
   openExternal(url: string): Promise<void>;
   notify(title: string, body: string): void;
   http(req: { url: string; method: string; headers: Record<string, string>; body?: string }): Promise<{ status: number; body: string }>;
@@ -61,6 +61,15 @@ export function electronBridge(api: DesktopApi): PlatformBridge {
     async googleSignIn(p) {
       if (!p.authUrl) throw new Error('missing auth url');
       return api.oauthLoopback(p.authUrl);
+    },
+    async authorize(authUrl) {
+      // The loopback receiver takes HTTPS authorization pages only; anything else is pasted.
+      if (!authUrl.startsWith('https://')) {
+        api.openExternal(authUrl);
+        return 'paste';
+      }
+      const r = await api.oauthLoopback(authUrl);
+      return { callbackUrl: r.callbackUrl };
     },
     canScanQr: false,
     notify: (t, b) => api.notify(t, b),
