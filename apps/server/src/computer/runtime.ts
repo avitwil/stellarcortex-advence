@@ -197,9 +197,11 @@ export class PodmanRuntime implements ContainerRuntime {
       'create', '--name', s.name,
       ...Object.entries(s.labels).flatMap(([k, v]) => ['--label', `${k}=${v}`]),
       // NFR-SEC-08 / FR-PC-04: non-root image user, no new privileges, default seccomp, no
-      // host mounts except the Bot's own volume, no Podman socket inside.
+      // host mounts except the Bot's own volume, no Podman socket inside. CAP_SYS_CHROOT is the
+      // one capability kept: Chromium's namespace sandbox needs it to start its zygote (DL-054).
       '--security-opt', 'no-new-privileges',
       '--cap-drop', 'all',
+      '--cap-add', 'SYS_CHROOT',
       '--pids-limit', '4096',
       '--cpus', String(s.cpus),
       '--memory', `${s.memoryMb}m`,

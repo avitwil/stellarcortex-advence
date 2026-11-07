@@ -81,13 +81,14 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
     spawnSync('sh', ['-c', 'podman rm -f $(podman ps -aq --filter label=advence.bot) >/dev/null 2>&1; true']);
   });
 
-  it('NFR-SEC-08 runs as the non-root Bot user with no capabilities, no new privileges and seccomp on', async () => {
+  it('NFR-SEC-08 runs as the non-root Bot user with only CAP_SYS_CHROOT, no new privileges and seccomp on', async () => {
     expect((await sh('id -u')).out).toBe('1000');
     const st = (await sh("grep -E '^(Seccomp|NoNewPrivs|CapEff|CapBnd):' /proc/self/status")).out;
     expect(st).toMatch(/Seccomp:\s+2/);
     expect(st).toMatch(/NoNewPrivs:\s+1/);
-    expect(st).toMatch(/CapEff:\s+0{16}/);
-    expect(st).toMatch(/CapBnd:\s+0{16}/);
+    // Only CAP_SYS_CHROOT (bit 18), which Chromium's namespace sandbox needs (DL-054).
+    expect(st).toMatch(/CapEff:\s+0000000000040000/);
+    expect(st).toMatch(/CapBnd:\s+0000000000040000/);
     // No set-uid way back to root.
     expect((await sh('su -c id root </dev/null >/dev/null 2>&1 && echo ESCAPED || echo blocked')).out).toBe('blocked');
   });

@@ -66,7 +66,7 @@ jobs:
       - name: Chromium sandbox probe (FR-PC-04 diagnostics)
         continue-on-error: true
         run: |
-          run() { podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all --entrypoint /bin/sh localhost/advence-bot-computer:ci -c "$1" || true; }
+          run() { podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all --cap-add SYS_CHROOT --entrypoint /bin/sh localhost/advence-bot-computer:ci -c "$1" || true; }
           run 'dpkg -l | grep -E "^ii +(chromium|libc6|libstdc|libglib2|libnss3) " | cut -c1-90; chromium --version'
           echo "--- sandboxed"
           run 'timeout 60 chromium --headless=new --no-first-run --disable-gpu --enable-logging=stderr --v=1 --dump-dom chrome://sandbox 2>&1 | grep -vE "crashpad|dbus|Fontconfig|cpufreq" | tail -n 40'

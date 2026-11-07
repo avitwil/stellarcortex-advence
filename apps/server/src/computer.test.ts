@@ -288,14 +288,14 @@ describe('FR-PC-09 Host control (D-12)', () => {
 });
 
 describe('NFR-SEC-08 Podman command lines', () => {
-  it('create: non-root image, no new privileges, all capabilities dropped, default seccomp, only the Bot volume, noVNC on loopback; exec passes secrets by name', async () => {
+  it('create: non-root image, no new privileges, all capabilities dropped but CAP_SYS_CHROOT, default seccomp, only the Bot volume, noVNC on loopback; exec passes secrets by name', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'advence-podman-'));
     const fake = path.join(dir, 'podman');
     fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\nprintf '%s' "$SECRET_TOKEN" > "${dir}/env"\n`, { mode: 0o755 });
     const p = new PodmanRuntime(fake);
     await p.create({ name: 'advence-bot-x', image: 'localhost/img:1', volume: 'advence-bot-x-home', vncSecret: 's', cpus: 2, memoryMb: 2048, gpu: false, network: ['--network', 'pasta:--no-map-gw'], labels: { 'advence.bot': 'x' } });
     const argv = fs.readFileSync(path.join(dir, 'argv'), 'utf8').trim().split('\n');
-    expect(argv).toEqual(expect.arrayContaining(['--security-opt', 'no-new-privileges', '--cap-drop', 'all', '--cpus', '2', '--memory', '2048m', '-p', '127.0.0.1::6080', '--network', 'pasta:--no-map-gw']));
+    expect(argv).toEqual(expect.arrayContaining(['--security-opt', 'no-new-privileges', '--cap-drop', 'all', '--cap-add', 'SYS_CHROOT', '--cpus', '2', '--memory', '2048m', '-p', '127.0.0.1::6080', '--network', 'pasta:--no-map-gw']));
     expect(argv.filter((a) => a === '-v')).toHaveLength(1);
     expect(argv[argv.indexOf('-v') + 1]).toBe('advence-bot-x-home:/home/bot');
     for (const bad of ['--privileged', 'seccomp=unconfined', '--no-sandbox', 'podman.sock', '--userns=host', '--pid=host', '--network=host']) expect(argv.join(' ')).not.toContain(bad);
