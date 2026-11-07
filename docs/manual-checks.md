@@ -139,6 +139,22 @@ Recording). Then turn Host control off. Pass: it works when on and the tool is r
 ### MC-P3-ANDROID-TAKEOVER: take-over on Android (FR-UI-05)
 On the Android app, open a Bot's computer, take over, tap and type, hand back.
 
+## P4
+
+### MC-P4-OBSIDIAN: vault graph in Obsidian (FR-MEM-02)
+After a few chats where a Bot saved notes, open Settings → Memory, choose "Use a plain vault for
+Obsidian", confirm, and open the folder shown there as a vault in Obsidian. Pass: the graph view
+shows the notes linked through their `[[wikilinks]]`, each Bot's `MEMORY.md` lists its notes, and
+frontmatter shows as properties. Switch back to encrypted afterwards.
+
+### MC-P4-CLAUDE-CODE: exported skill loads in Claude Code (FR-SKL-05)
+Teach a Bot a short process, export the skill from Settings → Skills, and unzip it under
+`~/.claude/skills/`. Pass: Claude Code lists the skill and follows it when asked.
+
+### MC-P4-SKILLS-SH: a real skills.sh entry (FR-SKL-01)
+Install one public entry from skills.sh and one public GitHub skill folder. Pass: both show the
+review with SKILL.md, file list and scan, and become active only after approval.
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|
