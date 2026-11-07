@@ -1,0 +1,28 @@
+{
+  "name": "@advence/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "StellarCortex Advence desktop client",
+  "author": "avitwil",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "build": "pnpm --filter @advence/ui build && node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dist": "pnpm build && electron-builder --publish never",
+    "start": "electron ."
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@advence/protocol": "workspace:*",
+    "@electron/fuses": "^2.1.3",
+    "electron": "45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.25.10",
+    "ws": "^8.18.0",
+    "@types/ws": "^8.18.1",
+    "electron-updater": "^6.8.11"
+  },
+  "desktopName": "stellarcortex-advence.desktop",
+  "homepage": "https://github.com/avitwil/stellarcortex-advence"
+}

@@ -22,5 +22,10 @@
     "typescript": "~5.9.3",
     "vitest": "^3.2.7",
     "playwright": "1.63.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/node": "^22.19.0"
+    }
   }
 }

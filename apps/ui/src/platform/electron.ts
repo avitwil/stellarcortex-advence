@@ -1,8 +1,8 @@
 // Electron bridge: the preload script exposes `window.advenceDesktop` (contextIsolation on).
-// The renderer uses fetch/WebSocket directly; the main process enforces the pinned key
-// through setCertificateVerifyProc (DL-016).
+// Server traffic goes through the main process, which connects only with the pinned key
+// (DL-016); the renderer's CSP allows no direct network connections.
 import type { Platform } from '@advence/protocol';
-import type { PlatformBridge } from './types';
+import type { PlatformBridge, SocketHandlers } from './types';
 import { browserBridge } from './browser';
 
 export interface DesktopApi {
@@ -14,6 +14,11 @@ export interface DesktopApi {
   oauthLoopback(authUrl: string): Promise<{ code: string; state: string }>;
   openExternal(url: string): Promise<void>;
   notify(title: string, body: string): void;
+  http(req: { url: string; method: string; headers: Record<string, string>; body?: string }): Promise<{ status: number; body: string }>;
+  wsOpen(id: string, url: string): Promise<void>;
+  wsSend(id: string, data: string): void;
+  wsClose(id: string): void;
+  onWsEvent(fn: (e: { id: string; kind: 'open' | 'message' | 'close'; data?: string; code?: number }) => void): () => void;
 }
 
 declare global {
@@ -24,10 +29,32 @@ declare global {
 
 export function electronBridge(api: DesktopApi): PlatformBridge {
   const base = browserBridge();
+  const sockets = new Map<string, SocketHandlers>();
+  api.onWsEvent((e) => {
+    const h = sockets.get(e.id);
+    if (!h) return;
+    if (e.kind === 'open') h.onOpen();
+    else if (e.kind === 'message') h.onMessage(e.data ?? '');
+    else {
+      sockets.delete(e.id);
+      h.onClose(e.code ?? 1006);
+    }
+  });
+  let seq = 0;
   return {
     ...base,
     platform: api.platform,
     trustServer: (h, p) => api.trustServer(h, p),
+    http: (req) => api.http(req),
+    socket(url, h) {
+      const id = `d${++seq}`;
+      sockets.set(id, h);
+      api.wsOpen(id, url).catch(() => {
+        sockets.delete(id);
+        h.onClose(1006);
+      });
+      return { send: (d) => api.wsSend(id, d), close: () => api.wsClose(id) };
+    },
     loadSecret: (n) => api.loadSecret(n),
     saveSecret: (n, v) => api.saveSecret(n, v),
     deleteSecret: (n) => api.deleteSecret(n),

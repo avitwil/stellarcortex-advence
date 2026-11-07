@@ -86,7 +86,14 @@ export const useStore = create<State>((set, get) => ({
     if (!link) throw new Error('invalid_link');
     const s = serverFromLink(link);
     const client = new ApiClient(s, platform());
-    const r = await client.startPairing(link.token, deviceName(), platform().platform);
+    let r: Awaited<ReturnType<ApiClient['startPairing']>>;
+    try {
+      r = await client.startPairing(link.token, deviceName(), platform().platform);
+    } catch (e) {
+      // Do not keep a device key for a server we never paired with.
+      if (!get().servers.some((x) => x.id === s.id)) await client.forgetKey().catch(() => undefined);
+      throw e;
+    }
     const saved: SavedServer = { ...s, deviceId: r.deviceId, pairingId: r.pairingId, pairingCode: r.code };
     const servers = [...get().servers.filter((x) => x.id !== saved.id), saved];
     saveServers(servers);
