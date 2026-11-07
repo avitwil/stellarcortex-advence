@@ -15,7 +15,7 @@
     "check:brand": "node scripts/check-brand.mjs",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check": "pnpm typecheck && pnpm check:brand && pnpm check:licenses && pnpm test",
-    "test:e2e": "pnpm --filter @advence/ui build && vitest run --project e2e"
+    "test:e2e": "pnpm --filter @advence/desktop build && vitest run --project e2e"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
