@@ -91,9 +91,11 @@ export class InputBroker {
     const p = this.pending.get(id);
     if (!p || p.userId !== userId) throw new HttpError(404, 'not_found');
     if (a.action === 'accept' && p.input.mode === 'form') {
-      const props = (p.input.schema?.properties ?? {}) as Record<string, unknown>;
+      const props = (p.input.schema?.properties ?? {}) as Record<string, { default?: unknown }>;
       const content: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(a.content ?? {})) if (k in props) content[k] = v;
+      // A field the user left out takes the form's default (SEP-1034); the UI shows it pre-filled.
+      for (const [k, v] of Object.entries(props)) if (content[k] === undefined && v?.default !== undefined) content[k] = v.default;
       const required = (p.input.schema?.required ?? []) as string[];
       if (required.some((k) => content[k] === undefined || content[k] === '')) throw new HttpError(400, 'missing_fields');
       p.resolve({ action: 'accept', content });

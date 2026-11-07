@@ -25,6 +25,7 @@ const TOOLS_TTL_MS = 5 * 60_000;
 const CALL_TIMEOUT_MS = 10 * 60_000;
 const MAX_RESULT_CHARS = 60_000;
 const MAX_TOOLS_PER_SERVER = 128;
+const MAX_REAUTH = 3;
 
 interface Config {
   name: string;
@@ -126,6 +127,8 @@ export class McpHub implements ToolProvider {
   private status = new Map<string, Status>();
   private names = new Map<string, Map<string, { serverId: string; tool: string }>>();
   private als = new AsyncLocalStorage<CallScope>();
+  /** sign-ins since the server last accepted a request */
+  private reauths = new Map<string, number>();
   private timer: NodeJS.Timeout;
 
   constructor(private ctx: AppContext, private bots: Bots, private computers: ComputerManager | null, o: { fetch?: typeof fetch } = {}) {
@@ -316,7 +319,7 @@ export class McpHub implements ToolProvider {
         this.conns.delete(key);
         void transport.close().catch(() => undefined);
         if (e instanceof UnauthorizedError) {
-          this.setStatus(r.id, { status: 'auth_required', error: null });
+          this.authRequired(r.id, c);
           throw new HttpError(401, 'mcp_auth_required');
         }
         this.setStatus(r.id, { status: 'error', error: (e as Error).message.slice(0, 300) });
@@ -368,6 +371,7 @@ export class McpHub implements ToolProvider {
     conn.prompts = caps.prompts ? (await conn.client.listPrompts().catch(() => ({ prompts: [] }))).prompts.length : 0;
     conn.tools = tools.slice(0, MAX_TOOLS_PER_SERVER);
     conn.toolsAt = Date.now();
+    this.reauths.delete(id);
     this.setStatus(id, {
       tools: conn.tools.map((t) => ({ name: t.name, ...(t.title ? { title: t.title } : {}), ...(t.description ? { description: t.description.slice(0, 500) } : {}), task: ['optional', 'required'].includes(t.execution?.taskSupport ?? '') })),
       resources: conn.resources,
@@ -383,8 +387,35 @@ export class McpHub implements ToolProvider {
     const bot = botId ? this.bots.owned(user, botId) : c.transport === 'stdio' ? (this.bots.list(user).find((b) => c.bots.includes(b.id)) ?? null) : null;
     if (c.transport === 'stdio' && !bot) throw new HttpError(409, 'enable_for_a_bot_first');
     const conn = await this.conn(user, r, c, bot);
-    await this.loadLists(r.id, conn, true);
+    try {
+      await this.loadLists(r.id, conn, true);
+    } catch (e) {
+      throw await this.signedOut(r.id, e);
+    }
     return this.get(user, id);
+  }
+
+  /** A request after connecting was refused for lack of sign-in (expired, revoked or step-up). */
+  private async signedOut(id: string, e: unknown): Promise<unknown> {
+    if (!(e instanceof UnauthorizedError)) return e;
+    await this.disconnect(id);
+    const r = this.ctx.db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as Row | undefined;
+    if (r) this.authRequired(id, this.config(r));
+    return new HttpError(401, 'mcp_auth_required');
+  }
+
+  /**
+   * The server wants a (new) sign-in. After MAX_REAUTH sign-ins in a row that did not lead to a
+   * single accepted request, the sign-in is withdrawn and the server shows an error instead, so a
+   * server that keeps refusing every token cannot send the user round in circles.
+   */
+  private authRequired(id: string, c: Config): void {
+    if ((this.reauths.get(id) ?? 0) >= MAX_REAUTH) {
+      if (c.transport === 'http') new SealedOAuthProvider(this.ctx, id, c.oauthClient ?? null).dropPending();
+      this.setStatus(id, { status: 'error', error: 'The server refused access after repeated sign-ins. Check the account’s permissions, then sign out and in again.' });
+      return;
+    }
+    this.setStatus(id, { status: 'auth_required', error: null });
   }
 
   // ------------------------------------------------------------------ OAuth (FR-MCP-03)
@@ -422,6 +453,7 @@ export class McpHub implements ToolProvider {
       await t.close().catch(() => undefined);
     }
     await this.disconnect(r.id);
+    this.reauths.set(r.id, (this.reauths.get(r.id) ?? 0) + 1);
     this.setStatus(r.id, { status: 'unknown', error: null });
     return this.get(user, id);
   }
@@ -429,6 +461,7 @@ export class McpHub implements ToolProvider {
   signOut(user: User, id: string): McpServer {
     const r = this.row(user, id);
     new SealedOAuthProvider(this.ctx, r.id, null).clear();
+    this.reauths.delete(r.id);
     void this.disconnect(r.id);
     this.setStatus(r.id, { status: 'unknown', error: null });
     return this.get(user, id);
@@ -446,15 +479,25 @@ export class McpHub implements ToolProvider {
   async prepare(user: User, bot: Bot, signal: AbortSignal): Promise<void> {
     await Promise.all(
       this.enabledFor(user, bot).map(async ({ r, c }) => {
-        if (signal.aborted) return;
+        if (signal.aborted || this.signInPending(r, c)) return;
         try {
           const conn = await this.conn(user, r, c, bot);
-          await this.loadLists(r.id, conn);
+          await this.loadLists(r.id, conn).catch(async (e: unknown) => {
+            throw await this.signedOut(r.id, e);
+          });
         } catch {
           /* the server shows its status in Settings; the Bot simply lacks its tools */
         }
       }),
     );
+  }
+
+  /**
+   * The user has a sign-in open for this server. Bots leave it alone until it is finished: a new
+   * connection attempt would start another authorization and void the one the user is completing.
+   */
+  private signInPending(r: Row, c: Config): boolean {
+    return c.transport === 'http' && new SealedOAuthProvider(this.ctx, r.id, c.oauthClient ?? null).pendingUrl() !== null;
   }
 
   private allowed(c: Config, tool: string): boolean {
@@ -521,6 +564,7 @@ export class McpHub implements ToolProvider {
       const r = this.row(c.user, target.serverId);
       const conf = this.config(r);
       if (r.enabled !== 1 || !conf.bots.includes(c.bot.id) || !this.allowed(conf, target.tool)) return fail('This MCP tool is not enabled for you.');
+      if (this.signInPending(r, conf)) throw new HttpError(401, 'mcp_auth_required');
       const conn = await this.conn(c.user, r, conf, c.bot);
       const tools = await this.loadLists(r.id, conn);
       const def = tools.find((t) => t.name === target.tool);
@@ -529,13 +573,16 @@ export class McpHub implements ToolProvider {
       try {
         const signal = AbortSignal.any([c.signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]);
         const result = await this.als.run(scope, () => this.callTool(conn, { id: r.id, name: conf.name }, def, input, signal));
+        this.reauths.delete(r.id);
         const { text, images } = textOf(result);
         return result.isError ? fail(text || 'The tool reported an error.') : ok(text, images);
       } finally {
         conn.active = null;
         conn.lastUsed = Date.now();
       }
-    } catch (e) {
+    } catch (caught) {
+      const target = this.names.get(`${c.user.id}:${c.bot.id}`)?.get(call.name);
+      const e = target ? await this.signedOut(target.serverId, caught) : caught;
       if (e instanceof HttpError) {
         if (e.code === 'mcp_auth_required') return fail('This MCP server needs the user to sign in first (Settings → MCP).');
         if (e.code === 'computer_unavailable') return fail('This MCP server runs in your computer, which is not available right now.');

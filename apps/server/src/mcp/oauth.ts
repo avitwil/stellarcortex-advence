@@ -92,6 +92,10 @@ export class SealedOAuthProvider implements OAuthClientProvider {
       b.tokens[issuer] = tokens;
       b.lastIssuer = issuer;
       b.authUrl = null;
+      // Discovery is pinned only for one sign-in (authorize and callback legs). Afterwards a 401
+      // discovers again, so a server that moved to another authorization server is followed
+      // there with a fresh registration (SEP-2352), never with the old server's credentials.
+      b.discovery = null;
     });
   }
 
@@ -126,6 +130,15 @@ export class SealedOAuthProvider implements OAuthClientProvider {
       }
       if (scope === 'all' || scope === 'verifier') b.verifier = null;
       if (scope === 'all' || scope === 'discovery') b.discovery = null;
+    });
+  }
+
+  /** Withdraws a pending sign-in (its URL, state and verifier); stored tokens stay. */
+  dropPending(): void {
+    this.save((b) => {
+      b.authUrl = null;
+      b.state = null;
+      b.verifier = null;
     });
   }
 
