@@ -28,6 +28,11 @@ jobs:
       - run: pnpm check:brand
       - run: pnpm check:licenses
       - run: pnpm test
+      # FR-LRN-03 / FR-SKL-05: skills made by the tests pass the reference validator.
+      - name: skills-ref validate
+        run: |
+          ls .tmp/skills-export
+          for d in .tmp/skills-export/*/; do pipx run --spec skills-ref==0.1.1 agentskills validate "$d"; done
       - name: E2E prerequisites
         run: |
           sudo apt-get update -qq
@@ -62,9 +67,9 @@ jobs:
         continue-on-error: true
         run: |
           probe() {
-            podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all localhost/advence-bot-computer:ci sh -c '
+            podman run --rm --user 1000 --security-opt no-new-privileges --cap-drop all --entrypoint /bin/sh localhost/advence-bot-computer:ci -c '
               unshare -Urm sh -c "mount -t tmpfs x /mnt && echo caps-in-userns-ok" || echo caps-in-userns-denied
-              timeout 60 chromium --headless=new --no-first-run --disable-gpu --enable-logging=stderr --v=0 --dump-dom chrome://sandbox 2>&1 | grep -vE "crashpad|dbus|Fontconfig" | grep -E "adequately|FATAL|ERROR|sandbox|namespace|zygote" | head -12'
+              timeout 60 chromium --headless=new --no-first-run --disable-gpu --enable-logging=stderr --v=1 --dump-dom chrome://sandbox 2>&1 | grep -vE "crashpad|dbus|Fontconfig" | grep -iE "adequately|FATAL|ERROR|sandbox|namespace|zygote|uid_map|setgroups|chroot|clone" | head -25' || true
           }
           echo "--- restrict_unprivileged_userns=1"; probe
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
