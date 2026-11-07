@@ -102,14 +102,16 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
     const targets = ['127.0.0.1', 'host.containers.internal', 'host.docker.internal', '10.0.2.2', '169.254.1.2', '169.254.1.1', ...hostAddresses()];
     const gwHex = (await sh("awk '$2 == \"00000000\" {print $3; exit}' /proc/net/route")).out;
     if (/^[0-9A-F]{8}$/i.test(gwHex)) targets.push(procAddr(`${gwHex}:0`).ip);
-    for (const h of targets) {
-      const r = await sh(`curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://${h}:${port}/v1/server-info; echo " rc=$?"`, 30_000);
-      expect(r.out, `reached the server via ${h}`).not.toMatch(/^200/);
-    }
+    // All probes run at once; unreachable addresses time out instead of refusing.
+    const probes = targets.map((h) => `(c=$(curl -sk --connect-timeout 4 --max-time 6 -o /dev/null -w '%{http_code}' https://${h}:${port}/v1/server-info); echo "${h} $c") &`).join('\n');
+    const r = await sh(`${probes}\nwait`, 60_000);
+    const lines = r.out.split('\n').filter(Boolean);
+    expect(lines).toHaveLength(targets.length);
+    for (const l of lines) expect(l, `reached the server via ${l.split(' ')[0]}`).not.toMatch(/ 200$/);
     expect((await sh('curl -sI --max-time 20 https://registry.npmjs.org/ -o /dev/null -w "%{http_code}"')).out).toMatch(/^[23]\d\d$/);
     const fwd = new URL(mock.url).port;
     expect((await sh(`curl -s --max-time 5 http://127.0.0.1:${fwd}/v1/models`)).out).toContain('mock-model');
-  });
+  }, 120_000);
 
   it('FR-PC-05 limits are enforced by the cgroup', async () => {
     expect((await sh('cat /sys/fs/cgroup/cpu.max')).out).toBe('200000 100000');
@@ -118,7 +120,7 @@ describe.runIf(IMAGE)('P3 real Bot computer (rootless Podman)', () => {
   });
 
   it('FR-PC-04 Chromium runs with its sandbox on, without --no-sandbox', async () => {
-    const flags = (await sh('grep -rl -- "--no-sandbox" /usr/bin/chromium* /etc/chromium* /usr/lib/chromium* 2>/dev/null; true')).out;
+    const flags = (await sh('grep -rlI -- "--no-sandbox" /usr/bin/chromium* /etc/chromium* /usr/lib/chromium* 2>/dev/null; true')).out;
     expect(flags).toBe('');
     const r = await sh('timeout 90 chromium --headless=new --no-first-run --disable-gpu --virtual-time-budget=5000 --dump-dom chrome://sandbox 2>/dev/null', 120_000);
     expect(r.out).toMatch(/You are adequately sandboxed/);

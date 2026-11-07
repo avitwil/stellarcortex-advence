@@ -31,6 +31,8 @@ afterAll(async () => {
 describe('P3: Bot computer in the browser client', () => {
   it('FR-UI-05 watches the live desktop, takes over with mouse and keyboard, and hands back', async () => {
     const { ctx, page, errors } = await signInBrowser(env, browser);
+    const pageErrors: string[] = [];
+    page.on('pageerror', (e) => pageErrors.push(String(e.stack ?? e)));
     try {
       await page.getByRole('img', { name: 'Connected' }).waitFor({ timeout: 15000 });
       await page.getByRole('button', { name: /Chief of Staff/ }).click();
@@ -44,7 +46,11 @@ describe('P3: Bot computer in the browser client', () => {
 
       // noVNC connects through the server proxy and draws the first frame.
       const canvas = dlg.locator('.vnc-screen canvas');
-      await canvas.waitFor({ timeout: 15000 });
+      await canvas.waitFor({ timeout: 15000 }).catch(async (e) => {
+        console.error('dialog:', await dlg.innerText().catch(() => '?'), '\nconsole errors:', errors.join('\n'), '\npage errors:', pageErrors.join('\n'), '\nrfb clients:', rt.rfbClients);
+        console.error(env.logs.filter((l) => /computer|vnc|warn|error|refused/i.test(l)).slice(-30).join('\n'));
+        throw e;
+      });
       await dlg.getByText('Connecting…').waitFor({ state: 'detached', timeout: 15000 });
       expect(rt.rfbClients).toBeGreaterThanOrEqual(1);
       await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(10);
