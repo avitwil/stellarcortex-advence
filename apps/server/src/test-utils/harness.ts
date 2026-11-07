@@ -103,13 +103,13 @@ export interface TestEnv {
   close(): Promise<void>;
 }
 
-export async function startTestServer(opts: { dataDir?: string; unlockDir?: string; google?: MockGoogle; boot?: Partial<BootOptions> } = {}): Promise<TestEnv> {
+export async function startTestServer(opts: { dataDir?: string; unlockDir?: string; google?: MockGoogle; boot?: Partial<BootOptions>; host?: string } = {}): Promise<TestEnv> {
   const dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'advence-data-'));
   const unlockDir = opts.unlockDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'advence-unlock-'));
   const google = opts.google ?? (await mockGoogle());
   const logs: string[] = [];
   const server = await startServer({
-    config: { dataDir, unlockDir, host: '127.0.0.1', port: 0, version: 'test' },
+    config: { dataDir, unlockDir, host: opts.host ?? '127.0.0.1', port: 0, version: 'test' },
     keystore: null,
     googleEndpoints: google.endpoints,
     fetchImpl: google.fetchImpl,

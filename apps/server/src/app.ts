@@ -18,6 +18,7 @@ import type { AppContext } from './context.js';
 import type { ServerConfig } from './config.js';
 import { registerFeatures } from './features.js';
 import type { Chat } from './chat/index.js';
+import { guardContainerPeers } from './computer/peer.js';
 import type { Computers } from './computer/index.js';
 import { NoRuntime } from './computer/index.js';
 import { PodmanRuntime, type ContainerRuntime } from './computer/runtime.js';
@@ -134,6 +135,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
   const runtime = o.containerRuntime ?? (o.processHost ? new NoRuntime() : new PodmanRuntime());
   const { chat, computers } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image });
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
+  guardContainerPeers(app.server, () => ctx.log.warn('refused a connection from a Bot computer'));
 
   await app.listen({ host: o.config.host, port: o.config.port });
   const addr = app.server.address();

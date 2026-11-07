@@ -50,11 +50,17 @@ function chat(j: any, res: http.ServerResponse): void {
   const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
   const done = (j.messages ?? []).some((m: any) => m.role === 'tool');
   const tool = (j.tools ?? []).find((t: any) => t.function?.name === 'bash');
-  if (!done && tool) {
+  // The Advence Bot's own chat model: hand the task to its coding engine (the `code` tool).
+  const code = (j.tools ?? []).find((t: any) => t.function?.name === 'code');
+  if (!done && code) {
+    send({ id: 'c0', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call_code', type: 'function', function: { name: 'code', arguments: JSON.stringify({ task: `Run this exact shell command: ${SHELL_COMMAND}` }) } }] }, finish_reason: null }] });
+    send({ id: 'c0', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  } else if (!done && tool) {
     send({ id: 'c1', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: SHELL_COMMAND, description: 'write a.txt' }) } }] }, finish_reason: null }] });
     send({ id: 'c1', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
   } else {
-    send({ id: 'c2', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: { role: 'assistant', content: 'Done: wrote a.txt' }, finish_reason: null }] });
+    const report = code ? `Engine said: ${String((j.messages ?? []).find((m: any) => m.role === 'tool')?.content ?? '')}` : 'Done: wrote a.txt';
+    send({ id: 'c2', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: { role: 'assistant', content: report }, finish_reason: null }] });
     send({ id: 'c2', object: 'chat.completion.chunk', model: 'mock-model', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 4, total_tokens: 24 } });
   }
   res.end('data: [DONE]\n\n');

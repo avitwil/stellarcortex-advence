@@ -37,11 +37,23 @@ jobs:
           pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
 
-  bot-computer-image:
+  bot-computer:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Rootless Podman with pasta (NFR-SEC-08)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq passt
+          podman info --format '{{.Host.CgroupsVersion}} {{.Host.CgroupManager}} rootless={{.Host.Security.Rootless}} pasta={{.Host.Pasta.Executable}}'
+          cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers || true
       - name: Build bot computer image (Podman, D-09)
         run: podman build -t localhost/advence-bot-computer:ci images/bot-computer
       - name: Smoke test
@@ -52,6 +64,30 @@ jobs:
           curl -fsS http://127.0.0.1:6080/vnc.html -o /dev/null
           test "$(podman exec bc id -u)" = "1000"
           podman rm -f bc
+      - name: Real Bot computer suite (FR-PC-01/03/04/05, FR-CODE-01/02/05, NFR-SEC-08)
+        env:
+          ADVENCE_REAL_PODMAN_IMAGE: localhost/advence-bot-computer:ci
+        run: pnpm exec vitest run --project server src/container.real.test.ts
+
+  engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install the real coding engines from npm (C-06)
+        run: |
+          mkdir -p "$RUNNER_TEMP/engines/.local"
+          npm install -g --prefix "$RUNNER_TEMP/engines/.local" --no-fund --no-audit @anthropic-ai/claude-agent-sdk @openai/codex opencode-ai
+      - name: The same task through each real engine (FR-CODE-01)
+        env:
+          ADVENCE_REAL_ENGINES_HOME: ${{ runner.temp }}/engines
+        run: pnpm exec vitest run --project server src/engines.test.ts
 
   android:
     runs-on: ubuntu-24.04
