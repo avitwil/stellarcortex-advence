@@ -16,7 +16,8 @@ import { registerCoreRoutes } from './routes/core.js';
 import { WsGateway } from './ws.js';
 import type { AppContext } from './context.js';
 import type { ServerConfig } from './config.js';
-import { registerFeatures, type McpServices } from './features.js';
+import { registerFeatures, type GoogleServices, type McpServices } from './features.js';
+import type { GoogleApiBases } from './google/tools.js';
 import type { Chat } from './chat/index.js';
 import { guardContainerPeers } from './computer/peer.js';
 import type { Computers } from './computer/index.js';
@@ -44,6 +45,9 @@ export interface BootOptions {
   skillSources?: InstallDeps;
   /** Outbound fetch for remote MCP servers (tests). */
   mcpFetch?: typeof fetch;
+  /** Google REST APIs (tests point these at a mock). */
+  googleApiFetch?: typeof fetch;
+  googleApiBases?: GoogleApiBases;
   testHooks?: AppContext['testHooks'];
 }
 
@@ -55,6 +59,7 @@ export interface Server {
   computers: Computers;
   memory: MemoryServices;
   mcp: McpServices;
+  google: GoogleServices;
   url: string;
   close(): Promise<void>;
 }
@@ -141,7 +146,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
   ctx.identity.onLogout = (id) => ws.closeDevice(id, 4004, 'signed out');
   registerCoreRoutes(app, ctx);
   const runtime = o.containerRuntime ?? (o.processHost ? new NoRuntime() : new PodmanRuntime());
-  const { chat, computers, memory, mcp } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources, mcpFetch: o.mcpFetch });
+  const { chat, computers, memory, mcp, google } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources, mcpFetch: o.mcpFetch, googleApiFetch: o.googleApiFetch, googleApiBases: o.googleApiBases });
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
   guardContainerPeers(app.server, () => ctx.log.warn('refused a connection from a Bot computer'));
 
@@ -157,6 +162,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
     computers,
     memory,
     mcp,
+    google,
     url: `https://127.0.0.1:${port}`,
     async close() {
       ws.close();

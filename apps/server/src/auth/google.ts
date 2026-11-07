@@ -5,6 +5,8 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 export interface GoogleEndpoints {
   authorization: string;
   token: string;
+  /** RFC 7009 token revocation */
+  revocation?: string;
   jwks: JWTVerifyGetKey;
   issuers: string[];
 }
@@ -12,6 +14,7 @@ export interface GoogleEndpoints {
 export const GOOGLE_ENDPOINTS: GoogleEndpoints = {
   authorization: 'https://accounts.google.com/o/oauth2/v2/auth',
   token: 'https://oauth2.googleapis.com/token',
+  revocation: 'https://oauth2.googleapis.com/revoke',
   jwks: createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs')),
   issuers: ['https://accounts.google.com', 'accounts.google.com'],
 };
@@ -43,7 +46,11 @@ export class GoogleOidc {
     private fetchImpl: typeof fetch = fetch,
   ) {}
 
-  authorizationUrl(p: { redirectUri: string; state: string; codeChallenge: string; scopes: string[]; nonce?: string; consent?: boolean }): string {
+  get clientIdValue(): string {
+    return this.clientId;
+  }
+
+  authorizationUrl(p: { redirectUri: string; state: string; codeChallenge: string; scopes: string[]; nonce?: string; consent?: boolean; loginHint?: string }): string {
     const u = new URL(this.ep.authorization);
     u.searchParams.set('client_id', this.clientId);
     u.searchParams.set('redirect_uri', p.redirectUri);
@@ -56,18 +63,20 @@ export class GoogleOidc {
     u.searchParams.set('include_granted_scopes', 'true');
     if (p.consent) u.searchParams.set('prompt', 'consent');
     if (p.nonce) u.searchParams.set('nonce', p.nonce);
+    if (p.loginHint) u.searchParams.set('login_hint', p.loginHint);
     return u.toString();
   }
 
-  async exchangeCode(code: string, codeVerifier: string, redirectUri: string): Promise<TokenResponse> {
+  /** codeVerifier is absent only for an Android server auth code (redirect_uri ''). */
+  async exchangeCode(code: string, codeVerifier: string | undefined, redirectUri: string): Promise<TokenResponse> {
     const body = new URLSearchParams({
       code,
       client_id: this.clientId,
       client_secret: this.clientSecret,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
-      code_verifier: codeVerifier,
     });
+    if (codeVerifier) body.set('code_verifier', codeVerifier);
     const r = await this.fetchImpl(this.ep.token, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
     const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (!r.ok || typeof j.id_token !== 'string') throw new AuthError('google_exchange_failed', typeof j.error === 'string' ? j.error : `status ${r.status}`);
@@ -86,6 +95,12 @@ export class GoogleOidc {
     const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (!r.ok || typeof j.access_token !== 'string') throw new AuthError('google_refresh_failed', typeof j.error === 'string' ? j.error : `status ${r.status}`);
     return { accessToken: j.access_token, expiresIn: typeof j.expires_in === 'number' ? j.expires_in : 3600, scope: typeof j.scope === 'string' ? j.scope : undefined };
+  }
+
+  /** Best effort: the grant is dropped locally whatever Google answers. Token in the body, never the URL. */
+  async revoke(token: string): Promise<void> {
+    if (!this.ep.revocation) return;
+    await this.fetchImpl(this.ep.revocation, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) }).catch(() => undefined);
   }
 
   async verifyIdToken(idToken: string): Promise<GoogleIdentity> {

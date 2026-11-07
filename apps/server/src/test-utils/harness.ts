@@ -47,6 +47,12 @@ export interface MockGoogle {
   issueCode(id: { sub: string; email: string; name?: string; verified?: boolean }): Promise<string>;
   idToken(id: { sub: string; email: string; name?: string; verified?: boolean; aud?: string; iss?: string; expSec?: number }): Promise<string>;
   lastTokenRequest?: URLSearchParams;
+  /** scopes the consent screen grants (FR-GGL-04 tests); default: none reported */
+  grantedScope?: string;
+  /** makes refresh fail with this OAuth error (for example invalid_grant) */
+  refreshError?: string;
+  refreshes: number;
+  revoked: string[];
 }
 
 export async function mockGoogle(): Promise<MockGoogle> {
@@ -56,9 +62,12 @@ export async function mockGoogle(): Promise<MockGoogle> {
   jwk.alg = 'RS256';
   const codes = new Map<string, string>();
   const m: MockGoogle = {
+    refreshes: 0,
+    revoked: [],
     endpoints: {
       authorization: 'https://accounts.example.test/o/oauth2/v2/auth',
       token: 'https://oauth2.example.test/token',
+      revocation: 'https://oauth2.example.test/revoke',
       jwks: createLocalJWKSet({ keys: [jwk] }),
       issuers: ['https://accounts.google.com', 'accounts.google.com'],
     },
@@ -79,15 +88,23 @@ export async function mockGoogle(): Promise<MockGoogle> {
     },
     fetchImpl: (async (url: string | URL, init?: RequestInit) => {
       const body = new URLSearchParams(String(init?.body ?? ''));
+      if (String(url) === m.endpoints.revocation) {
+        m.revoked.push(body.get('token') ?? '');
+        return new Response(null, { status: 200 });
+      }
       m.lastTokenRequest = body;
       if (String(url) !== m.endpoints.token) return new Response('not found', { status: 404 });
       if (body.get('grant_type') === 'authorization_code') {
         const t = codes.get(body.get('code') ?? '');
         codes.delete(body.get('code') ?? '');
         if (!t || body.get('client_secret') !== 'test-client-secret-1234') return Response.json({ error: 'invalid_grant' }, { status: 400 });
-        return Response.json({ id_token: t, access_token: 'ya29.test-access-token', refresh_token: '1//test-refresh-token-abcdefghijklmnop', expires_in: 3600, scope: body.get('scope') ?? '' });
+        return Response.json({ id_token: t, access_token: 'ya29.test-access-token', refresh_token: `1//test-refresh-token-${toB64url(randomBytes(9))}`, expires_in: 3600, scope: m.grantedScope ?? body.get('scope') ?? '' });
       }
-      if (body.get('grant_type') === 'refresh_token') return Response.json({ access_token: 'ya29.refreshed-access-token', expires_in: 3600 });
+      if (body.get('grant_type') === 'refresh_token') {
+        m.refreshes++;
+        if (m.refreshError) return Response.json({ error: m.refreshError }, { status: 400 });
+        return Response.json({ access_token: 'ya29.refreshed-access-token', expires_in: 3600 });
+      }
       return Response.json({ error: 'unsupported_grant_type' }, { status: 400 });
     }) as typeof fetch,
   };

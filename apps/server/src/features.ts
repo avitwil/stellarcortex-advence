@@ -16,10 +16,14 @@ import { registerMemoryRoutes } from './routes/memory.js';
 import { McpHub } from './mcp/hub.js';
 import { McpTokens, registerMcpServer } from './mcp/server.js';
 import { registerMcpRoutes } from './routes/mcp.js';
+import { GoogleConnections } from './google/connections.js';
+import { GoogleTools, type GoogleApiBases } from './google/tools.js';
+import { registerGoogleRoutes } from './routes/google.js';
 
 export interface McpServices { hub: McpHub; tokens: McpTokens }
+export interface GoogleServices { connections: GoogleConnections; tools: GoogleTools }
 
-export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string; skillSources?: InstallDeps; mcpFetch?: typeof fetch }): Promise<{ chat: Chat; computers: Computers; memory: MemoryServices; mcp: McpServices }> {
+export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws: WsGateway, o: { runtime: ContainerRuntime; imageDir?: string; image?: string; skillSources?: InstallDeps; mcpFetch?: typeof fetch; googleApiFetch?: typeof fetch; googleApiBases?: GoogleApiBases }): Promise<{ chat: Chat; computers: Computers; memory: MemoryServices; mcp: McpServices; google: GoogleServices }> {
   registerSettingsRoutes(app, ctx);
   const chat = createChat(ctx);
   const computers = createComputers(ctx, chat, o.runtime, { imageDir: o.imageDir, image: o.image });
@@ -37,6 +41,11 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   const tokens = new McpTokens(ctx);
   registerMcpRoutes(app, ctx, hub, tokens);
   const closeMcpServer = registerMcpServer(app, ctx, chat, tokens);
+  // P5: Google services for each user (FR-GGL-04..06).
+  const connections = new GoogleConnections(ctx, chat.push);
+  const googleTools = new GoogleTools(connections, { fetch: o.googleApiFetch, bases: o.googleApiBases });
+  chat.runtime.setTools(googleTools);
+  registerGoogleRoutes(app, ctx, connections);
   ws.onUpgrade(COMPUTER_WS_PATH, (req, socket, head) => computers.vnc.handleUpgrade(req, socket, head));
   app.addHook('onClose', async () => {
     computers.close();
@@ -44,6 +53,7 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
     memory.close();
     await hub.close();
     await closeMcpServer();
+    connections.close();
   });
   // P1 exit criterion: an empty chat round-trip over the signed WebSocket.
   ws.on('chat.ping', (client, payload) => {
@@ -52,5 +62,5 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   });
   // Must be last: catch-all for the opt-in browser UI.
   registerBrowserUi(app, ctx);
-  return { chat, computers, memory, mcp: { hub, tokens } };
+  return { chat, computers, memory, mcp: { hub, tokens }, google: { connections, tools: googleTools } };
 }

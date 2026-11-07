@@ -133,8 +133,19 @@ export const GoogleConnection = z.object({
   connectedAt: z.number().nullable(),
   /** when Google stops honouring the refresh token (Testing mode), if known */
   expiresAt: z.number().nullable(),
+  /** services the user did not grant in the consent screen */
+  missing: z.array(GoogleService),
 });
 export type GoogleConnection = z.infer<typeof GoogleConnection>;
 
+/** Desktop and browser: authorization code + PKCE through the loopback redirect (or pasted). */
 export const GoogleConnectStart = z.object({ redirectUri: z.string(), codeChallenge: z.string().min(43).max(128) }).strict();
-export const GoogleConnectFinish = z.object({ code: z.string().min(1).max(4000), state: z.string().min(1).max(200), codeVerifier: z.string().min(43).max(128) }).strict();
+export const GoogleConnectFinish = z.union([
+  z.object({ code: z.string().min(1).max(4000), state: z.string().min(1).max(200), codeVerifier: z.string().min(43).max(128) }).strict(),
+  /** Android: the server auth code from Google's authorization client */
+  z.object({ serverAuthCode: z.string().min(1).max(4000) }).strict(),
+]);
+export type GoogleConnectFinish = z.infer<typeof GoogleConnectFinish>;
+/** what Android's authorization client needs to ask for the same consent */
+export const GoogleConnectInfo = z.object({ clientId: z.string(), scopes: z.array(z.string()) });
+export type GoogleConnectInfo = z.infer<typeof GoogleConnectInfo>;
