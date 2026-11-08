@@ -2,6 +2,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_PORT } from '@advence/protocol';
+import { BUILD } from './build-info.js';
 
 export interface ServerConfig {
   dataDir: string;
@@ -12,7 +13,7 @@ export interface ServerConfig {
   version: string;
 }
 
-export const VERSION = '0.1.0';
+export const VERSION = BUILD.version;
 
 export function defaultDataDir(platform: NodeJS.Platform = process.platform, env = process.env): string {
   if (env.ADVENCE_DATA_DIR) return path.resolve(env.ADVENCE_DATA_DIR);

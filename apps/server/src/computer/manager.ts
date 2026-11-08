@@ -3,6 +3,7 @@
 // policy that cuts the container off from the host, and owner take-over of the desktop.
 // Chat never depends on any of this (FR-PC-06): every failure only changes the computer state.
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COMPUTER_EVENTS, type ComputerLimits, type ComputerSettings, type ComputerState, type ComputerStateKind } from '@advence/protocol';
@@ -24,8 +25,12 @@ const vncKey = (botId: string) => `vnc:${botId}`;
 
 export function defaultImageDir(): string {
   if (process.env.ADVENCE_IMAGE_DIR) return path.resolve(process.env.ADVENCE_IMAGE_DIR);
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  // release bundle: <bundle>/server/dist/computer -> <bundle>/image (D-24)
+  const bundled = path.resolve(here, '../../../image');
+  if (fs.existsSync(path.join(bundled, 'Containerfile'))) return bundled;
   // apps/server/{src,dist}/computer -> repository root -> images/bot-computer
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../images/bot-computer');
+  return path.resolve(here, '../../../../images/bot-computer');
 }
 
 interface Live { state: ComputerStateKind; progress: number | null; detail: string | null }

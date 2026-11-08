@@ -25,6 +25,9 @@ import type { MemoryServices } from './memory/index.js';
 import type { InstallDeps } from './memory/install.js';
 import { NoRuntime } from './computer/index.js';
 import { PodmanRuntime, type ContainerRuntime } from './computer/runtime.js';
+import { BUILD } from './build-info.js';
+import { Updater, type UpdaterOptions } from './update/updater.js';
+import { registerUpdateRoutes } from './routes/update.js';
 
 export interface BootOptions {
   config: ServerConfig;
@@ -49,6 +52,8 @@ export interface BootOptions {
   googleApiFetch?: typeof fetch;
   googleApiBases?: GoogleApiBases;
   testHooks?: AppContext['testHooks'];
+  /** Server updates (D-24); defaults come from the build and the launcher's environment. */
+  update?: Partial<Omit<UpdaterOptions, 'dataDir'>>;
 }
 
 export interface Server {
@@ -61,6 +66,7 @@ export interface Server {
   mcp: McpServices;
   google: GoogleServices;
   proactive: import('./proactive/engine.js').Proactivity;
+  updater: Updater;
   url: string;
   close(): Promise<void>;
 }
@@ -148,6 +154,17 @@ export async function startServer(o: BootOptions): Promise<Server> {
   registerCoreRoutes(app, ctx);
   const runtime = o.containerRuntime ?? (o.processHost ? new NoRuntime() : new PodmanRuntime());
   const { chat, computers, memory, mcp, google, proactive } = await registerFeatures(app, ctx, ws, { runtime, imageDir: o.imageDir, image: o.image, skillSources: o.skillSources, mcpFetch: o.mcpFetch, googleApiFetch: o.googleApiFetch, googleApiBases: o.googleApiBases });
+  const updater = new Updater({
+    build: BUILD,
+    installRoot: process.env.ADVENCE_INSTALL_ROOT ? path.resolve(process.env.ADVENCE_INSTALL_ROOT) : null,
+    underLauncher: process.env.ADVENCE_LAUNCHER === '1' && typeof process.send === 'function',
+    log: (msg, extra) => ctx.log.info(extra ?? {}, msg),
+    ...o.update,
+    dataDir: o.config.dataDir,
+  });
+  registerUpdateRoutes(app, ctx, updater);
+  if (!ctx.testHooks?.manualTriggers) updater.start();
+  app.addHook('onClose', async () => updater.close());
   app.server.on('upgrade', (req, socket, head) => ws.handleUpgrade(req, socket, head));
   guardContainerPeers(app.server, () => ctx.log.warn('refused a connection from a Bot computer'));
 
@@ -165,6 +182,7 @@ export async function startServer(o: BootOptions): Promise<Server> {
     mcp,
     google,
     proactive,
+    updater,
     url: `https://127.0.0.1:${port}`,
     async close() {
       ws.close();
