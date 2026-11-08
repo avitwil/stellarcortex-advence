@@ -333,6 +333,16 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX held_user ON held_actions(user_id, status);
   `,
+  // P6: memory notes and skills written while outside content was in play (NFR-SEC-11).
+  `
+  CREATE TABLE tainted_items (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, kind, key)
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

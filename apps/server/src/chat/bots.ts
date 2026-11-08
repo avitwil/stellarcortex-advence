@@ -128,5 +128,7 @@ export class Bots {
     const b = this.owned(user, id);
     if (b.primary) throw new HttpError(409, 'cannot_delete_primary');
     this.ctx.db.prepare('UPDATE bots SET archived_at = ? WHERE id = ?').run(Date.now(), id);
+    // Its routines stop with it (P6).
+    for (const fn of this.listeners) fn({ ...b, paused: true });
   }
 }

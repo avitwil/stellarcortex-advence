@@ -94,7 +94,8 @@ export class LearnPass implements ReplyObserver {
     const transcript = this.d.runtime.transcript(user, bot, convId, 30);
     const prompt = `Conversation with ${user.name}:\n\n${transcript}\n\nSkills used in this conversation: ${skills.length ? skills.join(', ') : 'none'}.\n\nReview it now.`;
     const system = [LEARN_SYSTEM, this.d.memory.system(user, bot), this.d.skills.system(user, bot)].filter(Boolean).join('\n\n');
-    const r = await this.d.runtime.background(user, bot, { system, prompt, providers: [only(this.d.memory), only(this.d.skills)], convId, maxTurns: 6 });
+    // What it saves from a chat with outside content in it is marked (NFR-SEC-11).
+    const r = await this.d.runtime.background(user, bot, { system, prompt, providers: [only(this.d.memory), only(this.d.skills)], convId, maxTurns: 6, taint: this.d.runtime.convTaint(convId, 30) });
     const writes = r.calls.filter((t) => /^(memory_write|memory_append|skill_create|skill_patch)$/.test(t.name)).length;
     this.d.activity.log(user.id, bot.id, 'learn.review', { bot: bot.name, trigger: why, writes: String(writes) });
   }

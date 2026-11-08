@@ -184,6 +184,24 @@ the endpoint to Claude Code as an HTTP MCP server with the header `Authorization
 and `NODE_EXTRA_CA_CERTS` set to the certificate. Pass: Claude Code lists the Bots and routines,
 sends a message to a Bot and gets its reply, and reads a Library file.
 
+## P6
+
+### MC-P6-PUSH-ANDROID: proactive push within 10 s (FR-PRO-08)
+On an Android phone with the ntfy app as the push distributor, sign in and leave the app in the
+background. Make a Bot proactive and give it a webhook routine. POST to the webhook address.
+Pass: the notification arrives within 10 s of the run finishing and opens the Bot's chat; a
+suggestion card also pushes; with the Bot's notifications off, or the app muted, nothing arrives.
+
+### MC-P6-GMAIL: a real mail triggers an automatic reply (FR-PRO-02, FR-PRO-03)
+With Google connected (MC-P5-GOOGLE), make a Bot proactive and add a routine "New mail" with the
+filter `from:<your other address>` and the instructions "Answer it briefly." Send a mail from the
+other address. Pass: within two minutes the run shows "Done" in the Routines tab and the reply
+arrives in the other mailbox, with no approval prompt.
+
+### MC-P6-KILL-ANDROID: the kill switch on the phone (FR-PRO-06)
+On Android, start a long routine run (for example a coding task) and press "Pause all" in the
+sidebar. Pass: within 2 s the run shows "Stopped" on the phone and on the desktop.
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|

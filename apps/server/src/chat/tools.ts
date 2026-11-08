@@ -67,8 +67,9 @@ export class BotTools implements ToolProvider {
   }
 
   /** Work surfaces: what the engine and the screens show is work content (repositories, web pages). */
-  traits(): ToolTraits {
-    return { readOnly: false, taint: 'work', work: true };
+  traits(name: string): ToolTraits {
+    // The host desktop is its own surface: what the Bot saw in its computer cannot drive it.
+    return { readOnly: false, taint: 'work', work: name === 'host' ? 'host' : 'pc' };
   }
 
   async run(c: CallCtx, call: ToolCall): Promise<ModelMessage> {

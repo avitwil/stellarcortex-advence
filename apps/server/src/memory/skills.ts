@@ -284,12 +284,18 @@ export class Skills implements ToolProvider {
 
   /** skill_run executes a skill's scripts in the Bot's computer; their output is work content. */
   traits(name: string): ToolTraits {
-    if (name === 'skill_run') return { readOnly: false, taint: 'work', work: true };
+    if (name === 'skill_run') return { readOnly: false, taint: 'work', work: 'pc' };
     return { readOnly: name === 'skill_view', taint: 'none' };
   }
 
+  /** Skills a Bot wrote with outside content in play (NFR-SEC-11): kept out of the prompt, and reading one taints. */
+  private tainted(user: User, s: SkillInfo): boolean {
+    return this.memory.marks.has(user.id, 'skill', s.id);
+  }
+
   system(user: User, bot: Bot): string | null {
-    const list = this.visible(user, bot).slice(0, 60);
+    const marked = this.memory.marks.all(user.id, 'skill');
+    const list = this.visible(user, bot).filter((s) => !marked.has(s.id)).slice(0, 60);
     if (!list.length) return 'You have no skills yet. When the user teaches you a process, save it with skill_create.';
     return `Your skills (open one with skill_view or use it with skill_run; improve your own with skill_patch):\n${list.map((s) => `- ${s.name}: ${s.description.replace(/\s+/g, ' ').slice(0, 200)}`).join('\n')}`;
   }
@@ -302,17 +308,22 @@ export class Skills implements ToolProvider {
         case 'skill_view': {
           const p = ViewIn.safeParse(call.input);
           if (!p.success) return fail('Give "name".');
-          return ok(this.view(c.user, c.bot, p.data.name).text.slice(0, 60_000));
+          const v = this.view(c.user, c.bot, p.data.name);
+          const r = ok(v.text.slice(0, 60_000));
+          return this.tainted(c.user, v.info) ? { ...r, taint: 'outside' } as ModelMessage : r;
         }
         case 'skill_run': {
           const p = ViewIn.safeParse(call.input);
           if (!p.success) return fail('Give "name".');
-          return ok(await this.use(c, p.data.name));
+          const s = this.find(c.user, c.bot, p.data.name);
+          const r = ok(await this.use(c, p.data.name));
+          return s && this.tainted(c.user, s) ? { ...r, taint: 'outside' } as ModelMessage : r;
         }
         case 'skill_create': {
           const p = CreateIn.safeParse(call.input);
           if (!p.success) return fail(`Invalid input: ${p.error.issues[0]?.message ?? ''}`);
           const s = await this.create(c.user, c.bot, p.data, c.convId ? `chat:${c.convId}` : 'learn');
+          if (c.taint && c.taint !== 'none') this.memory.marks.mark(c.user.id, 'skill', s.id);
           return ok(`Saved the skill "${s.name}".`);
         }
         case 'skill_patch': {
@@ -320,6 +331,7 @@ export class Skills implements ToolProvider {
           if (!p.success) return fail(`Invalid input: ${p.error.issues[0]?.message ?? ''}`);
           if (!p.data.find && !p.data.body && !p.data.description && !p.data.file) return fail('Give "find" and "replace", "body", "description" or "file".');
           const s = await this.patch(c.user, c.bot, p.data);
+          if (c.taint && c.taint !== 'none') this.memory.marks.mark(c.user.id, 'skill', s.id);
           return ok(`Patched the skill "${s.name}".`);
         }
       }

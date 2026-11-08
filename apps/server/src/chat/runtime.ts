@@ -32,7 +32,11 @@ export interface ChatServices {
   observers?: ReplyObserver[];
 }
 
-export interface ToolCtx { user: User; bot: Bot; convId: string; messageId: string; signal: AbortSignal }
+export interface ToolCtx {
+  user: User; bot: Bot; convId: string; messageId: string; signal: AbortSignal;
+  /** how much outside content is in the context this call came from (NFR-SEC-11) */
+  taint?: Taint;
+}
 
 export interface ToolProvider {
   specs(user: User, bot: Bot): ToolSpec[];
@@ -54,11 +58,21 @@ export interface ToolProvider {
 export type Taint = 'none' | 'work' | 'outside';
 export const TAINT_RANK: Record<Taint, number> = { none: 0, work: 1, outside: 2 };
 
+/** A work surface: the Bot's own computer (desktop, coding engine, skill files) or the host desktop. */
+export type Surface = 'pc' | 'host';
+
 /**
- * readOnly: changes nothing anywhere. taint: what its result brings into the reply. work: acts only
- * on the work surfaces (Bot computer, engine, host), so `work` taint does not hold it.
+ * readOnly: changes nothing anywhere. taint: what its result brings into the reply. work: the one
+ * work surface it acts on; `work` taint seen only on that same surface does not hold it, so content
+ * seen in the Bot's computer can never drive the host desktop or any other tool.
  */
-export interface ToolTraits { readOnly: boolean; taint: Taint; work?: boolean }
+export interface ToolTraits { readOnly: boolean; taint: Taint; work?: Surface }
+
+/**
+ * How a message's taint is stored: "work" (seen in the Bot's computer), "work:host",
+ * "work:pc,host", or "outside". Older rows may hold `true`, read as outside.
+ */
+export type TaintMark = 'none' | 'outside' | 'work' | `work:${string}`;
 
 /** P6: proactivity decides whether a Bot may act on outside content, and holds what it may not. */
 export interface AutonomyPolicy {
@@ -71,7 +85,8 @@ export interface AutonomyPolicy {
 }
 
 /** An autonomous run started by a trigger or a suggestion (FR-PRO-03). */
-export interface AutoRun { id: string; routine: string; trigger: string }
+/** An autonomous run (P6); `botId` is the proactive Bot that runs it (delegates may be others). */
+export interface AutoRun { id: string; routine: string; trigger: string; botId: string }
 
 export interface ReplyInfo { user: User; bot: Bot; convId: string; replyId: string; toolCalls: ToolCall[] }
 export interface ReplyObserver { afterReply(info: ReplyInfo): void }
@@ -135,9 +150,22 @@ interface RunOpts {
 
 const BUILTIN_TRAITS: ToolTraits = { readOnly: false, taint: 'none' };
 
-interface TaintState { level: Taint }
-const raise = (t: TaintState, to: Taint) => {
+interface TaintState { level: Taint; surfaces?: Set<Surface> }
+const raise = (t: TaintState, to: Taint, surface?: Surface) => {
   if (TAINT_RANK[to] > TAINT_RANK[t.level]) t.level = to;
+  if (to === 'work') (t.surfaces ??= new Set()).add(surface ?? 'pc');
+};
+/** Raises from a stored mark (a message row, a delegate's reply). */
+const raiseMark = (t: TaintState, m: TaintMark | true | undefined) => {
+  if (!m || m === 'none') return;
+  if (m === true || m === 'outside') return raise(t, 'outside');
+  const list = m === 'work' ? ['pc'] : m.slice(5).split(',');
+  for (const s of list) raise(t, 'work', s === 'host' ? 'host' : 'pc');
+};
+const markOf = (t: TaintState): TaintMark => {
+  if (t.level !== 'work') return t.level;
+  const s = [...(t.surfaces ?? new Set<Surface>(['pc']))].sort((a, b) => (a === 'pc' ? -1 : b === 'pc' ? 1 : 0));
+  return s.length === 1 && s[0] === 'pc' ? 'work' : `work:${s.join(',')}`;
 };
 
 export class ChatRuntime {
@@ -161,7 +189,10 @@ export class ChatRuntime {
   }
 
   private autonomous(user: User, bot: Bot): boolean {
-    return this.policy ? this.policy.autonomous(user, bot) : bot.proactive && !bot.paused;
+    // The Bot as it is now: a pause during a reply counts from the next action (FR-PRO-06).
+    const cur = this.s.bots.get(bot.id);
+    if (!cur) return false;
+    return this.policy ? this.policy.autonomous(user, cur) : cur.proactive && !cur.paused;
   }
 
   toolTraits(name: string, user: User, bot: Bot): ToolTraits {
@@ -235,7 +266,7 @@ export class ChatRuntime {
   }
 
   /** Runs one Bot's reply in a chat; returns its final text (for delegation). */
-  async respond(user: User, bot: Bot, convId: string, parentId: string | null, o: RunOpts): Promise<{ text: string; ok: boolean; tainted: Taint; messageId: string }> {
+  async respond(user: User, bot: Bot, convId: string, parentId: string | null, o: RunOpts): Promise<{ text: string; ok: boolean; tainted: TaintMark; messageId: string }> {
     const { store } = this.s;
     const placeholder = store.insertMessage({ convId, author: 'bot', botId: bot.id, text: '', parentId, status: 'streaming' });
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageCreated, store.toMessage(placeholder, user.id));
@@ -253,10 +284,10 @@ export class ChatRuntime {
     try {
       await this.runModel(user, bot, convId, parentId, placeholder.id, o, signal, emit, toolCalls, taint);
       if (!text.trim()) throw new ProviderError('failed', 'empty reply');
-      final = store.finishMessage(placeholder.id, text, 'done', null, taint.level);
+      final = store.finishMessage(placeholder.id, text, 'done', null, markOf(taint));
     } catch (e) {
       const code = signal.aborted ? 'stopped' : errorCode(e);
-      final = store.finishMessage(placeholder.id, text, 'error', code, taint.level);
+      final = store.finishMessage(placeholder.id, text, 'error', code, markOf(taint));
       if (code !== 'stopped') {
         this.ctx.log.warn({ bot: bot.id, code }, 'bot reply failed');
         this.s.activity.log(user.id, bot.id, 'reply.error', { bot: bot.name, code });
@@ -267,7 +298,7 @@ export class ChatRuntime {
     this.s.search.put(user.id, final);
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageDone, store.toMessage(final, user.id));
     this.publishConversation(user, convId);
-    if (final.status !== 'done') return { text, ok: false, tainted: taint.level, messageId: final.id };
+    if (final.status !== 'done') return { text, ok: false, tainted: markOf(taint), messageId: final.id };
 
     this.s.library.fromReply(user.id, bot.id, convId, final.id, text, store.attachmentsOf(final.id));
     for (const ob of this.s.observers ?? []) {
@@ -278,7 +309,7 @@ export class ChatRuntime {
       }
     }
     if (bot.notify === 'all') void this.s.push.wake(user.id, final.id);
-    if (o.auto) return { text, ok: true, tainted: taint.level, messageId: final.id };
+    if (o.auto) return { text, ok: true, tainted: markOf(taint), messageId: final.id };
 
     // Group hand-off: Bots this reply mentions take the next turn (FR-BOT-03).
     if (store.kind(convId) === 'group' && o.hop < MAX_HANDOFF_HOPS) {
@@ -294,7 +325,7 @@ export class ChatRuntime {
         }
       }
     }
-    return { text, ok: true, tainted: taint.level, messageId: final.id };
+    return { text, ok: true, tainted: markOf(taint), messageId: final.id };
   }
 
   private async runModel(user: User, bot: Bot, convId: string, parentId: string | null, selfId: string, o: RunOpts, signal: AbortSignal, emit: (t: string) => void, calls: ToolCall[], taint: TaintState): Promise<void> {
@@ -324,19 +355,22 @@ export class ChatRuntime {
       calls.push(call);
       const autonomous = this.autonomous(user, bot);
       // FR-PRO-06: a paused autonomous run stops before its next action.
-      if (o.auto && !autonomous) throw new ProviderError('failed', 'stopped');
+      // A Bot it delegates to follows its own rule instead (held when outside content is in play).
+      if (o.auto && o.auto.botId === bot.id && !autonomous) throw new ProviderError('failed', 'stopped');
       const t = call.name === 'delegate' ? BUILTIN_TRAITS : this.toolTraits(call.name, user, bot);
       // NFR-SEC-11: once outside content is in the reply, a Bot that may not act on it can only
       // read; any other call waits for the user's approval. Content seen while working only lets
       // the work continue on the same surfaces. Enforced here, not by prompt.
-      const held = !autonomous && !t.readOnly && (taint.level === 'outside' || (taint.level === 'work' && !t.work));
+      const sameSurface = !!t.work && [...(taint.surfaces ?? [])].every((s) => s === t.work);
+      const held = !autonomous && !t.readOnly && (taint.level === 'outside' || (taint.level === 'work' && !sameSurface));
       if (held) {
         const said = this.policy?.hold(user, bot, convId, call) ?? 'This action was blocked: outside content cannot start actions for this Bot.';
         this.s.activity.log(user.id, bot.id, 'action.held', { bot: bot.name, tool: call.name });
         return { role: 'tool', toolCallId: call.id, content: said, isError: true };
       }
       const result = await this.runTool(user, bot, call, delegates, o, signal, convId, selfId, taint);
-      raise(taint, t.taint);
+      raise(taint, t.taint, t.work);
+      if (result.role === 'tool' && result.taint) raise(taint, result.taint, t.work);
       if (o.auto) this.policy?.acted?.(user, bot, o.auto, call, result);
       return result;
     });
@@ -346,7 +380,8 @@ export class ChatRuntime {
   async execTool(user: User, bot: Bot, convId: string, call: ToolCall, signal: AbortSignal): Promise<ModelMessage> {
     const delegates = bot.tools.includes('delegate') ? this.s.bots.list(user).filter((b) => b.id !== bot.id) : [];
     await Promise.all((this.s.providers ?? []).map((p) => p.prepare?.(user, bot, signal).catch(() => undefined)));
-    return this.runTool(user, bot, call, delegates, { hop: 0, depth: 0, signal }, signal, convId, '', { level: 'none' });
+    // Held calls only come from chats with outside content in them.
+    return this.runTool(user, bot, call, delegates, { hop: 0, depth: 0, signal }, signal, convId, '', { level: 'outside' });
   }
 
   /** The model/tool loop shared by chat replies and background runs. */
@@ -381,7 +416,7 @@ export class ChatRuntime {
    * A run outside any chat (P4 learn pass and curator): the Bot's own model with only the given
    * tools; nothing is posted to a conversation. Usage is recorded as usual.
    */
-  async background(user: User, bot: Bot, o: { system: string; prompt: string; providers: ToolProvider[]; convId?: string; signal?: AbortSignal; maxTurns?: number }): Promise<{ text: string; calls: ToolCall[] }> {
+  async background(user: User, bot: Bot, o: { system: string; prompt: string; providers: ToolProvider[]; convId?: string; signal?: AbortSignal; maxTurns?: number; taint?: Taint }): Promise<{ text: string; calls: ToolCall[] }> {
     if (!bot.sourceId) throw new HttpError(409, 'no_model_source');
     const signal = o.signal ?? AbortSignal.timeout(10 * 60_000);
     const { provider, kind } = this.s.sources.provider(user, bot.id, bot.sourceId);
@@ -394,9 +429,19 @@ export class ChatRuntime {
       calls.push(call);
       const p = o.providers.find((x) => x.handles(call.name));
       if (!p) return { role: 'tool', toolCallId: call.id, content: `Unknown tool ${call.name}.`, isError: true };
-      return p.run({ user, bot, convId: o.convId ?? '', messageId: '', signal }, call);
+      return p.run({ user, bot, convId: o.convId ?? '', messageId: '', signal, taint: o.taint ?? 'none' }, call);
     });
     return { text, calls };
+  }
+
+  /** How much outside content is in the last messages of a conversation. */
+  convTaint(convId: string, limit = 20): Taint {
+    const t: TaintState = { level: 'none' };
+    for (const r of this.s.store.contextRows(convId, null, limit)) {
+      const b = this.s.store.body(r);
+      raiseMark(t, b.tainted);
+    }
+    return t.level;
   }
 
   /** The last messages of a conversation as plain text, from the Bot's point of view. */
@@ -417,7 +462,7 @@ export class ChatRuntime {
   private async runTool(user: User, bot: Bot, call: ToolCall, delegates: Bot[], o: RunOpts, signal: AbortSignal, convId: string, selfId: string, taint: TaintState): Promise<ModelMessage> {
     const fail = (content: string): ModelMessage => ({ role: 'tool', toolCallId: call.id, content, isError: true });
     const provider = (this.s.providers ?? []).find((p) => p.handles(call.name));
-    if (provider) return provider.run({ user, bot, convId, messageId: selfId, signal }, call);
+    if (provider) return provider.run({ user, bot, convId, messageId: selfId, signal, taint: taint.level }, call);
     if (call.name !== 'delegate') return fail(`Unknown tool ${call.name}.`);
     const p = DelegateInput.safeParse(call.input);
     if (!p.success) return fail('Invalid input: give "bot" (a Bot name) and "task".');
@@ -426,12 +471,12 @@ export class ChatRuntime {
     if (!target) return fail(`No Bot named "${p.data.bot}". Available: ${delegates.map((b) => b.name).join(', ')}.`);
     // The hand-off is visible in the target Bot's own chat (FR-BOT-02).
     const conv = this.s.store.direct(user, target.id, target.name);
-    const task = this.s.store.insertMessage({ convId: conv, author: 'system', text: `${bot.name}: ${p.data.task}`, tainted: taint.level });
+    const task = this.s.store.insertMessage({ convId: conv, author: 'system', text: `${bot.name}: ${p.data.task}`, tainted: markOf(taint) });
     this.s.search.put(user.id, task);
     this.ctx.bus.publish(user.id, CHAT_EVENTS.messageCreated, this.s.store.toMessage(task, user.id));
     this.s.activity.log(user.id, bot.id, 'delegate', { bot: bot.name, target: target.name });
     const r = await this.respond(user, target, conv, null, { hop: 0, depth: o.depth + 1, signal, ...(o.auto ? { auto: o.auto } : {}) });
-    raise(taint, r.tainted);
+    raiseMark(taint, r.tainted);
     if (!r.ok) return fail(`${target.name} could not finish the task.`);
     return { role: 'tool', toolCallId: call.id, content: r.text.slice(0, 50_000) };
   }
@@ -463,7 +508,7 @@ export class ChatRuntime {
     for (const r of rows) {
       const body = this.s.store.body(r);
       // Outside content anywhere in what the model reads taints the reply (NFR-SEC-11).
-      if (body.tainted) raise(taint, body.tainted === 'work' ? 'work' : 'outside');
+      raiseMark(taint, body.tainted);
       if (r.status !== 'done') continue;
       const text = body.text;
       if (r.author === 'bot' && r.bot_id === bot.id) {

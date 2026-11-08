@@ -12,6 +12,7 @@ import { Vault } from './vault.js';
 import { MemoryIndex, type Hit } from './search.js';
 import { NOTE_TYPES, noteName, parseNote, renderIndex, renderNote, today, type Note } from './notes.js';
 import { checkCapture, checkDuplicate, checkNoteName, checkSize, GuardError } from './guard.js';
+import { TaintMarks } from '../chat/taint.js';
 
 export const agentDir = (botId: string) => `agents/${botId}/`;
 
@@ -27,14 +28,19 @@ const AppendIn = z.object({ folder: z.enum(['shared', 'user']), name: z.string()
 
 export const MEMORY_TOOLS = ['memory_search', 'memory_read', 'memory_write', 'memory_append'] as const;
 
+const notePath = (path: string) => (path.endsWith('.md') || path.includes('.') ? path : `${path}.md`);
+
 export class Memory implements ToolProvider {
   readonly vault: Vault;
   readonly index = new MemoryIndex();
   private loaded = new Set<string>();
   private locks = new Map<string, Promise<unknown>>();
 
+  readonly marks: TaintMarks;
+
   constructor(private ctx: AppContext, private activity: Activity) {
     this.vault = new Vault(ctx);
+    this.marks = new TaintMarks(ctx.db);
   }
 
   /** Re-reads a user's vault into the search index (plain vaults may change outside). */
@@ -58,7 +64,7 @@ export class Memory implements ToolProvider {
   }
 
   read(user: User, bot: Bot, path: string): string | null {
-    const p = path.endsWith('.md') || path.includes('.') ? path : `${path}.md`;
+    const p = notePath(path);
     if (!this.readable(bot).some((r) => p.startsWith(r))) return null;
     return this.vault.read(user.id, p);
   }
@@ -173,9 +179,15 @@ export class Memory implements ToolProvider {
   }
 
   system(user: User, bot: Bot): string {
+    // Notes written with outside content in play stay out of the prompt (NFR-SEC-11); reading
+    // one with memory_read taints the reader.
+    const tainted = this.marks.all(user.id, 'note');
     const idx = this.vault.read(user.id, `${agentDir(bot.id)}MEMORY.md`);
-    const lines = idx ? idx.split('\n').filter((l) => l.startsWith('- ')).slice(0, 60) : [];
-    const userNotes = this.vault.list(user.id, 'user/').filter((p) => p.endsWith('.md')).map(noteName).slice(0, 30);
+    const lines = idx ? idx.split('\n').filter((l) => l.startsWith('- ')).filter((l) => {
+      const name = /^- \[\[([^\]]+)\]\]/.exec(l)?.[1];
+      return !name || !tainted.has(`${agentDir(bot.id)}${name}.md`);
+    }).slice(0, 60) : [];
+    const userNotes = this.vault.list(user.id, 'user/').filter((p) => p.endsWith('.md') && !tainted.has(p)).map(noteName).slice(0, 30);
     return [
       'You have a long-term memory. Search it with memory_search before answering questions about past work or the user, and save what will matter later (preferences, corrections, decisions, how-tos) with memory_write or memory_append.',
       lines.length ? `Your memory index:\n${lines.join('\n')}` : 'Your memory is empty so far.',
@@ -192,23 +204,30 @@ export class Memory implements ToolProvider {
           const p = SearchIn.safeParse(call.input);
           if (!p.success) return fail('Give "query".');
           const hits = this.search(c.user, c.bot, p.data.query, p.data.limit ?? 5);
-          return ok(hits.length ? hits.map((h) => `- ${h.path} (${h.type}${h.tags.length ? `; ${h.tags.join(', ')}` : ''}): ${h.summary}`).join('\n') : 'Nothing found.');
+          const r = ok(hits.length ? hits.map((h) => `- ${h.path} (${h.type}${h.tags.length ? `; ${h.tags.join(', ')}` : ''}): ${h.summary}`).join('\n') : 'Nothing found.');
+          return hits.some((h) => this.marks.has(c.user.id, 'note', h.path)) ? { ...r, taint: 'outside' } as ModelMessage : r;
         }
         case 'memory_read': {
           const p = ReadIn.safeParse(call.input);
           if (!p.success) return fail('Give "path".');
           const text = this.read(c.user, c.bot, p.data.path);
-          return text === null ? fail('No such note in your memory.') : ok(text.slice(0, 40_000));
+          if (text === null) return fail('No such note in your memory.');
+          const r = ok(text.slice(0, 40_000));
+          return this.marks.has(c.user.id, 'note', notePath(p.data.path)) ? { ...r, taint: 'outside' } as ModelMessage : r;
         }
         case 'memory_write': {
           const p = WriteIn.safeParse(call.input);
           if (!p.success) return fail(`Invalid input: ${p.error.issues[0]?.message ?? ''}`);
-          return ok(`Saved ${await this.writeNote(c.user, c.bot, p.data, `${origin}:${c.convId}`)}.`);
+          const path = await this.writeNote(c.user, c.bot, p.data, `${origin}:${c.convId}`);
+          if (c.taint && c.taint !== 'none') this.marks.mark(c.user.id, 'note', path);
+          return ok(`Saved ${path}.`);
         }
         case 'memory_append': {
           const p = AppendIn.safeParse(call.input);
           if (!p.success) return fail('Give "folder" (shared or user), "name" and "text".');
-          return ok(`Added to ${await this.append(c.user, c.bot, p.data.folder, p.data.name, p.data.text)}.`);
+          const path = await this.append(c.user, c.bot, p.data.folder, p.data.name, p.data.text);
+          if (c.taint && c.taint !== 'none') this.marks.mark(c.user.id, 'note', path);
+          return ok(`Added to ${path}.`);
         }
       }
       return fail(`Unknown tool ${call.name}.`);

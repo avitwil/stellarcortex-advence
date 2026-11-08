@@ -219,8 +219,10 @@ export class Proactivity implements AutonomyPolicy {
     this.ctx.db
       .prepare('INSERT INTO routines(id, user_id, bot_id, body, kind, paused, next_run, hook_hash, created_at) VALUES(?,?,?,?,?,0,?,?,?)')
       .run(id, user.id, b.botId, this.ctx.crypto.sealContent(JSON.stringify(body), `routine:${id}`), trigger.kind, this.nextFor(trigger, this.now()), secret ? hashToken(secret) : null, this.now());
-    const v = this.view(this.rowOf(user, id), origin, secret);
-    this.ctx.bus.publish(user.id, PROACTIVE_EVENTS.routine, v);
+    const row = this.rowOf(user, id);
+    // The secret goes back to the caller only, not to the user's other devices.
+    this.ctx.bus.publish(user.id, PROACTIVE_EVENTS.routine, this.view(row, origin));
+    const v = this.view(row, origin, secret);
     if (trigger.kind === 'mcp') void this.poll();
     return v;
   }
@@ -345,7 +347,7 @@ export class Proactivity implements AutonomyPolicy {
       this.ctx.bus.publish(user.id, CHAT_EVENTS.messageCreated, store.toMessage(msg, user.id));
       this.chat.activity.log(user.id, bot.id, 'auto.run', { bot: bot.name, routine: b.routine, trigger: b.trigger });
       const signal = AbortSignal.any([ac.signal, AbortSignal.timeout(RUN_TIMEOUT_MS)]);
-      const r = await this.chat.runtime.respond(user, bot, conv, null, { hop: 0, depth: 0, signal, auto: { id: q.id, routine: b.routine, trigger: b.trigger } });
+      const r = await this.chat.runtime.respond(user, bot, conv, null, { hop: 0, depth: 0, signal, auto: { id: q.id, routine: b.routine, trigger: b.trigger, botId: bot.id } });
       const status: RunStatus = r.ok ? 'done' : ac.signal.aborted ? 'stopped' : 'error';
       this.finishRun(q.id, status, r.ok ? null : ac.signal.aborted ? 'paused' : 'failed', { convId: conv, messageId: r.messageId });
       this.chat.activity.log(user.id, bot.id, 'auto.done', { bot: bot.name, routine: b.routine, status });
@@ -475,7 +477,8 @@ export class Proactivity implements AutonomyPolicy {
     this.write(r.id, b);
     if (since === null || !(await m.isRunning(bot.id))) return;
     // The path is passed as a variable, never spliced into the script.
-    const script = 'cd "$HOME" 2>/dev/null; find -- "$ADVENCE_WATCH" -type f -newermt "@$ADVENCE_SINCE" 2>/dev/null | head -n 50';
+    // A relative path that starts with "-" would read as a find expression, so it gets "./".
+    const script = 'cd "$HOME" 2>/dev/null; case "$ADVENCE_WATCH" in -*) ADVENCE_WATCH="./$ADVENCE_WATCH";; esac; find -- "$ADVENCE_WATCH" -type f -newermt "@$ADVENCE_SINCE" 2>/dev/null | head -n 50';
     const p = m.exec(bot.id, ['sh', '-c', script], { env: { ADVENCE_WATCH: path, ADVENCE_SINCE: String(since) }, signal: AbortSignal.timeout(20_000) });
     const out: string[] = [];
     for await (const line of p.lines) out.push(String(line));
@@ -619,11 +622,11 @@ export class Proactivity implements AutonomyPolicy {
     const r = this.ctx.db.prepare('SELECT * FROM held_actions WHERE id = ?').get(id) as HeldRow | undefined;
     if (!r || r.user_id !== user.id) throw new HttpError(404, 'not_found');
     if (r.status !== 'open') throw new HttpError(409, 'already_decided');
+    const bot = this.chat.bots.owned(user, r.bot_id);
     const done = this.ctx.db.prepare("UPDATE held_actions SET status = ? WHERE id = ? AND status = 'open'").run(allow ? 'allowed' : 'denied', id);
     if (!done.changes) throw new HttpError(409, 'already_decided');
     const a = this.heldView(r);
     this.ctx.bus.publish(user.id, PROACTIVE_EVENTS.held, { id, done: true });
-    const bot = this.chat.bots.owned(user, r.bot_id);
     this.chat.activity.log(user.id, bot.id, allow ? 'action.allowed' : 'action.denied', { bot: bot.name, tool: a.tool });
     const { store } = this.chat;
     let text: string;
@@ -631,7 +634,8 @@ export class Proactivity implements AutonomyPolicy {
     if (allow) {
       const call: ToolCall = { id: newId('call'), name: a.tool, input: JSON.parse(a.input) as unknown };
       const res = await this.chat.runtime.execTool(user, bot, r.conv_id, call, AbortSignal.timeout(10 * 60_000));
-      taint = this.chat.runtime.toolTraits(a.tool, user, bot).taint;
+      // The chat already holds outside content; the result keeps it marked.
+      taint = 'outside';
       const err = res.role === 'tool' && res.isError;
       text = `${user.name} allowed ${a.tool}. Result${err ? ' (error)' : ''}:\n${res.role === 'tool' ? res.content.slice(0, 8000) : ''}`;
     } else {

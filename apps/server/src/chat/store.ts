@@ -1,6 +1,7 @@
 // Conversations, messages, threads, reactions, drafts and attachments (FR-UI-01, FR-UI-02).
 // Every piece of content is sealed under the content key with a per-row AAD (NFR-SEC-04).
 import fs from 'node:fs';
+import type { TaintMark } from './runtime.js';
 import path from 'node:path';
 import type { Attachment, Conversation, EngineStep, Message, User } from '@advence/protocol';
 import { MAX_ATTACHMENT_BYTES } from '@advence/protocol';
@@ -15,7 +16,7 @@ export interface MsgRow {
   created_at: number; updated_at: number; steps: Buffer | null;
 }
 /** tainted: holds or was written from outside content (mail, web, MCP, triggers; NFR-SEC-11) */
-interface Body { text: string; mentions: string[]; tainted?: 'work' | 'outside' | true }
+interface Body { text: string; mentions: string[]; tainted?: TaintMark | true }
 
 /** One line of plain text for the conversation list: markdown links, emphasis and code marks removed. */
 export function previewOf(text: string): string {
@@ -192,7 +193,7 @@ export class ChatStore {
     return rows.reverse();
   }
 
-  insertMessage(m: { convId: string; author: 'user' | 'bot' | 'system'; userId?: string | null; botId?: string | null; text: string; mentions?: string[]; parentId?: string | null; status?: 'done' | 'streaming'; clientId?: string | null; attachmentIds?: string[]; tainted?: 'none' | 'work' | 'outside' }): MsgRow {
+  insertMessage(m: { convId: string; author: 'user' | 'bot' | 'system'; userId?: string | null; botId?: string | null; text: string; mentions?: string[]; parentId?: string | null; status?: 'done' | 'streaming'; clientId?: string | null; attachmentIds?: string[]; tainted?: TaintMark }): MsgRow {
     const id = newId('msg');
     // Strictly increasing timestamps keep ordering stable within one millisecond.
     const last = (this.ctx.db.prepare('SELECT MAX(created_at) t FROM messages WHERE conversation_id = ?').get(m.convId) as { t: number | null }).t ?? 0;
@@ -211,7 +212,7 @@ export class ChatStore {
     return this.ctx.db.prepare('SELECT * FROM messages WHERE conversation_id = ? AND client_id = ?').get(convId, clientId) as MsgRow | undefined;
   }
 
-  finishMessage(id: string, text: string, status: 'done' | 'error', error: string | null = null, tainted: 'none' | 'work' | 'outside' = 'none'): MsgRow {
+  finishMessage(id: string, text: string, status: 'done' | 'error', error: string | null = null, tainted: TaintMark = 'none'): MsgRow {
     const r = this.msgRow(id)!;
     const b = this.body(r);
     this.ctx.db.prepare('UPDATE messages SET body = ?, status = ?, error = ?, updated_at = ? WHERE id = ?').run(this.seal(id, { ...b, text, ...(tainted !== 'none' ? { tainted } : {}) }), status, error, Date.now(), id);
