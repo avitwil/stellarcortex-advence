@@ -55,7 +55,10 @@ fs.writeFileSync(path.join(stage, 'build-info.json'), `${JSON.stringify({
 fs.mkdirSync(a.out, { recursive: true });
 const name = `advence-server-${a.version}-${process.platform}-${process.arch}.tar.gz`;
 const file = path.resolve(a.out, name);
-// bsdtar on Windows and macOS and GNU tar on Linux all read this format.
-sh('tar', ['-czf', file, '-C', stage, '.']);
+// bsdtar on Windows and macOS and GNU tar on Linux all read this format. On Windows the
+// system bsdtar is used by full path: Git for Windows puts GNU tar first on PATH in bash steps,
+// and GNU tar reads "D:\a\..." as a remote host:file and fails.
+const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+sh(tar, ['-czf', file, '-C', stage, '.']);
 fs.rmSync(stage, { recursive: true, force: true });
 console.log(`${file} (${(fs.statSync(file).size / 1024 / 1024).toFixed(1)} MB)`);
