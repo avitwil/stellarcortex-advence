@@ -4,7 +4,8 @@
 $ErrorActionPreference = 'Stop'
 $Work = Join-Path $env:RUNNER_TEMP ("advence-" + [guid]::NewGuid())
 $FeedDir = Join-Path $Work 'feed'
-New-Item -ItemType Directory -Force -Path (Join-Path $FeedDir 'server') | Out-Null
+$Stage = Join-Path $Work 'stage'
+New-Item -ItemType Directory -Force -Path $FeedDir, $Stage | Out-Null
 $Feed = 'http://127.0.0.1:8899'
 $env:ADVENCE_SKIP_PAIR = '1'
 
@@ -14,12 +15,15 @@ function WaitVersion($v) {
   throw "server did not report $v"
 }
 function Publish($v, $skip) {
-  Get-ChildItem (Join-Path $FeedDir 'server') | Remove-Item -Force
-  $a = @('scripts/release/bundle-server.mjs', '--version', $v, '--out', (Join-Path $FeedDir 'server'))
+  # The feed is flat, like a GitHub release.
+  Get-ChildItem $Stage | Remove-Item -Force
+  Get-ChildItem $FeedDir -File | Where-Object { $_.Name -like '*.tar.gz' -or $_.Name -like 'server-manifest.json*' } | Remove-Item -Force
+  $a = @('scripts/release/bundle-server.mjs', '--version', $v, '--out', $Stage)
   if ($skip) { $a += '--skip-build' }
   node @a; if ($LASTEXITCODE) { throw 'bundle failed' }
-  node scripts/release/manifest.mjs --component server --version $v --dir (Join-Path $FeedDir 'server') --out (Join-Path $FeedDir 'server/manifest.json'); if ($LASTEXITCODE) { throw 'manifest failed' }
-  node scripts/release/sign.mjs --key-file (Join-Path $Work 'release.key') (Join-Path $FeedDir 'server/manifest.json'); if ($LASTEXITCODE) { throw 'sign failed' }
+  node scripts/release/manifest.mjs --component server --version $v --dir $Stage --out (Join-Path $Stage 'server-manifest.json'); if ($LASTEXITCODE) { throw 'manifest failed' }
+  node scripts/release/sign.mjs --key-file (Join-Path $Work 'release.key') (Join-Path $Stage 'server-manifest.json'); if ($LASTEXITCODE) { throw 'sign failed' }
+  Copy-Item (Join-Path $Stage '*') $FeedDir -Force
 }
 
 $out = node scripts/release/keygen.mjs --out (Join-Path $Work 'release.key')
@@ -32,7 +36,7 @@ $http = Start-Process -PassThru -WindowStyle Hidden python -ArgumentList '-m', '
 Start-Sleep 2
 
 Write-Host '== a tampered bundle is refused'
-$bundle = (Get-ChildItem (Join-Path $FeedDir 'server') -Filter '*.tar.gz').FullName
+$bundle = (Get-ChildItem $FeedDir -Filter '*.tar.gz').FullName
 Copy-Item $bundle (Join-Path $Work 'good.tar.gz')
 Add-Content -Path $bundle -Value 'x' -NoNewline
 powershell -ExecutionPolicy Bypass -c "irm $Feed/install.ps1 | iex"

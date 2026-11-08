@@ -1,8 +1,9 @@
 # Releasing StellarCortex Advence
 
-This is the owner's checklist for a release (D-24, NFR-SEC-10, C-07). Nothing is published by
-CI. A release candidate is a private workflow artifact until you approve it and upload it to your
-own update server yourself.
+This is the owner's checklist for a release (D-24, NFR-SEC-10, C-07). Updates are served from this
+repository's GitHub releases, so the repository must be public (DL-086). Nothing is published by
+CI: a signed candidate becomes a **draft** release, and it reaches installs only when you publish
+it.
 
 ## 1. Once: create the release key
 
@@ -20,8 +21,9 @@ refuses to write inside the repository or over an existing key.
   through a reinstall.
 - In GitHub, under the repository's **Settings → Secrets and variables → Actions**:
   - add the **variable** `ADVENCE_RELEASE_PUBKEY` with the printed public key;
-  - add the **variable** `ADVENCE_FEED_URL` with your feed address, for example
-    `https://updates.example.org` (your VPS, https only);
+  - leave `ADVENCE_FEED_URL` unset to use this repository's releases
+    (`https://github.com/<owner>/<repo>/releases/latest/download`). Set it only to serve the
+    files from your own https web server instead;
   - optionally let CI sign candidates. Under **Settings → Environments**, create the environment
     `release`, add yourself as a **required reviewer**, limit **deployment branches** to the branch you release from (normally `main`),
     and add the **environment secret** `ADVENCE_RELEASE_KEY` with the file's content. Do not add
@@ -57,47 +59,59 @@ approval.
 
 ## 3. Check and sign on your computer
 
-Download `feed-<version>` and unpack it. If it contains `UNSIGNED.txt`, sign it:
+When CI signed the candidate, the draft release already holds every file: skip to the test
+below. Otherwise download the `feed-<version>` artifact, unpack it into `feed/`, and sign it:
 
 ```sh
 for c in server desktop android; do
-  node scripts/release/sign.mjs --key-file ~/advence-release.key --expect "$ADVENCE_RELEASE_PUBKEY" feed/$c/manifest.json
+  node scripts/release/sign.mjs --key-file ~/advence-release.key --expect "$ADVENCE_RELEASE_PUBKEY" feed/$c-manifest.json
 done
 ```
+
+On Windows (PowerShell), use `--key-file "$env:USERPROFILE\advence-release.key"` and
+`feed/server-manifest.json` and so on, one line per component.
 
 Then verify everything against the public key, as an install would:
 
 ```sh
 for c in server desktop android; do
-  node scripts/release/verify.mjs --pub "$ADVENCE_RELEASE_PUBKEY" feed/$c/manifest.json --dir feed/$c
+  node scripts/release/verify.mjs --pub "$ADVENCE_RELEASE_PUBKEY" feed/$c-manifest.json --dir feed
 done
 ```
 
-Every line must say `ok` and each manifest `signature ok`. Delete `UNSIGNED.txt`.
+Every line must say `ok` and each manifest `signature ok`. Delete `UNSIGNED.txt`, then create the
+draft release yourself, either on GitHub (**Releases → Draft a new release**, tag `v<version>`,
+drop in every file from `feed/`) or with
+`gh release create v<version> feed/* --draft --title "StellarCortex Advence <version>"`.
 
-Test the candidate before you publish it (`docs/manual-checks.md`, section P7): install it on a
-spare machine with the one-line installer pointed at a local copy of the feed, update a running
-install to it, and install the APK on a phone.
+Test the candidate before you publish it (`docs/manual-checks.md`, section P7): serve the `feed/`
+folder on a spare machine (for example `python3 -m http.server 8899 --bind 127.0.0.1`), install
+with an installer rendered for that address, update a running install to it, and install the
+APK on a phone.
 
 ## 4. Publish (your approval)
 
-Publishing is your step only (C-07). Upload the folder to your web server so that it is served
-as:
+Publishing is your step only (C-07). On GitHub, open **Releases**, check the draft, and press
+**Publish release**. Its files are then served as:
 
 ```
-https://updates.example.org/install.sh
-https://updates.example.org/install.ps1
-https://updates.example.org/server/manifest.json (+ .sig and the bundles)
-https://updates.example.org/desktop/manifest.json (+ .sig, installers, latest*.yml)
-https://updates.example.org/android/manifest.json (+ .sig and the APKs)
+https://github.com/<owner>/<repo>/releases/latest/download/install.sh
+https://github.com/<owner>/<repo>/releases/latest/download/install.ps1
+https://github.com/<owner>/<repo>/releases/latest/download/server-manifest.json (+ .sig)
+https://github.com/<owner>/<repo>/releases/latest/download/desktop-manifest.json (+ .sig, latest*.yml)
+https://github.com/<owner>/<repo>/releases/latest/download/android-manifest.json (+ .sig)
 ```
 
-Any static web server works (nginx, Caddy). Upload the files first and the manifests and their
-`.sig` files last, so nobody sees a manifest for files that are not there yet.
+plus every bundle, installer and APK under the same address. `latest` always points to the
+newest published release that is not marked as a pre-release, so a `-rc` version (published as
+a pre-release) never reaches installs by itself.
 
 Installs pick the release up by themselves: servers check daily and the owner installs from
 **Settings → Updates** (or `advence update apply`), desktop apps download and verify it, and the
 Android app offers it in **Settings → Updates**.
+
+With your own web server instead (`ADVENCE_FEED_URL` set), upload the same flat folder so the
+files sit directly under that address, the manifests and their `.sig` files last.
 
 ## Rotating the key
 

@@ -1,6 +1,6 @@
 // Fills the feed URL and pinned release key(s) into the one-line installers (FR-CLI-06):
 //   node scripts/release/render-installers.mjs --feed https://updates.example.org --keys <pub>[,<pub>] --out out
-// The rendered install.sh and install.ps1 are published at the feed root next to server/.
+// The rendered install.sh and install.ps1 are published in the feed next to the manifests.
 import fs from 'node:fs';
 import path from 'node:path';
 import { args, repoRoot } from './lib.mjs';

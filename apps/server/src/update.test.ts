@@ -27,7 +27,9 @@ let feedUrl = '';
 
 beforeAll(async () => {
   feed = http.createServer((req, res) => {
-    const body = files.get(req.url ?? '');
+    // Like a GitHub release: a release file redirects to the file host.
+    if (req.url?.endsWith('.tar.gz') && !req.url.startsWith('/objects/')) return res.writeHead(302, { location: `/objects${req.url}` }).end();
+    const body = files.get((req.url ?? '').replace(/^\/objects/, ''));
     if (!body) return res.writeHead(404).end();
     res.writeHead(200, { 'content-length': body.length }).end(body);
   });
@@ -81,9 +83,9 @@ function publish(version: string, tgz: Uint8Array, o: { signWith?: Uint8Array; t
   }));
   const sig = signRelease(o.signWith ?? seed, manifest);
   const served = o.tamperManifest ? new TextEncoder().encode(new TextDecoder().decode(manifest).replace(`Release ${version}`, `Release ${version}!`)) : manifest;
-  files.set('/server/manifest.json', served);
-  files.set('/server/manifest.json.sig', new TextEncoder().encode(sig));
-  files.set(`/server/${name}`, o.fileBytes ?? tgz);
+  files.set('/server-manifest.json', served);
+  files.set('/server-manifest.json.sig', new TextEncoder().encode(sig));
+  files.set(`/${name}`, o.fileBytes ?? tgz);
 }
 
 function build(version = '1.0.0', keys = [KEY]): BuildInfo {
@@ -160,6 +162,16 @@ describe('FR-CLI-05 / NFR-SEC-10: every update is signature-checked before it is
     }))) as unknown as typeof fetch;
     const u = new Updater({ build: build(), dataDir: tmp('data'), installRoot: null, underLauncher: false, fetch: endless });
     expect((await u.check()).error).toBe('too_large');
+  });
+
+  it('refuses a feed that redirects to plain http', async () => {
+    const downgraded = (async () => {
+      const r = new Response('{}');
+      Object.defineProperty(r, 'url', { value: 'http://files.example.com/server-manifest.json' });
+      return r;
+    }) as unknown as typeof fetch;
+    const u = new Updater({ build: { ...build(), feedUrl: 'https://github.com/o/r/releases/latest/download' }, dataDir: tmp('data'), installRoot: null, underLauncher: false, fetch: downgraded });
+    expect((await u.check()).error).toBe('feed_not_https');
   });
 
   it('stages a verified release: extracted next to the running version and marked pending', async () => {

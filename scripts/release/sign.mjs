@@ -1,6 +1,6 @@
 // Signs a manifest (NFR-SEC-10): writes <manifest>.sig next to it.
-//   ADVENCE_RELEASE_KEY=… node scripts/release/sign.mjs out/server/manifest.json
-//   node scripts/release/sign.mjs --key-file ~/advence-release.key out/server/manifest.json
+//   ADVENCE_RELEASE_KEY=… node scripts/release/sign.mjs out/server/server-manifest.json
+//   node scripts/release/sign.mjs --key-file ~/advence-release.key out/server/server-manifest.json
 import fs from 'node:fs';
 import { args, loadSeed, privateKeyFromSeed, publicKeyOf, sign, verify } from './lib.mjs';
 

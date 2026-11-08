@@ -11,7 +11,8 @@ FEED_DIR="$WORK/feed"
 PORT=8899
 FEED="http://127.0.0.1:$PORT"
 export ADVENCE_SKIP_PAIR=1
-mkdir -p "$FEED_DIR/server"
+STAGE="$WORK/stage"
+mkdir -p "$FEED_DIR" "$STAGE"
 
 health() { curl -fsk "https://127.0.0.1:4443/v1/health" 2>/dev/null || true; }
 wait_version() {
@@ -21,11 +22,12 @@ wait_version() {
   done
   echo "server did not report $1"; health; return 1
 }
-publish() { # version
-  rm -f "$FEED_DIR/server/"*
-  node scripts/release/bundle-server.mjs --version "$1" --out "$FEED_DIR/server" ${SKIP_BUILD:-}
-  node scripts/release/manifest.mjs --component server --version "$1" --dir "$FEED_DIR/server" --out "$FEED_DIR/server/manifest.json"
-  node scripts/release/sign.mjs --key-file "$WORK/release.key" "$FEED_DIR/server/manifest.json"
+publish() { # version; the feed is flat, like a GitHub release
+  rm -f "$STAGE"/* "$FEED_DIR"/*.tar.gz "$FEED_DIR"/server-manifest.json*
+  node scripts/release/bundle-server.mjs --version "$1" --out "$STAGE" ${SKIP_BUILD:-}
+  node scripts/release/manifest.mjs --component server --version "$1" --dir "$STAGE" --out "$STAGE/server-manifest.json"
+  node scripts/release/sign.mjs --key-file "$WORK/release.key" "$STAGE/server-manifest.json"
+  cp "$STAGE"/* "$FEED_DIR/"
 }
 
 node scripts/release/keygen.mjs --out "$WORK/release.key" | tee "$WORK/keygen.txt"
@@ -38,7 +40,7 @@ node scripts/release/render-installers.mjs --feed "$FEED" --keys "$PUB" --out "$
 for _ in $(seq 1 20); do curl -fs "$FEED/install.sh" -o /dev/null && break; sleep 0.5; done
 
 echo "== a tampered bundle is refused and nothing is installed"
-BUNDLE=$(ls "$FEED_DIR/server/"*.tar.gz)
+BUNDLE=$(ls "$FEED_DIR"/*.tar.gz)
 cp "$BUNDLE" "$WORK/good.tar.gz"
 printf 'x' >> "$BUNDLE"
 if curl -fsSL "$FEED/install.sh" | sh; then echo "tampered install succeeded"; exit 1; fi

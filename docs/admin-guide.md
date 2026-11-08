@@ -20,18 +20,19 @@ encrypted from your devices to your server; your server runs the Bots and can re
 
 ## Install
 
-Your release feed serves the installers (see `docs/release.md`).
+The installers come with each published release on GitHub (see `docs/release.md`). With your
+own feed server, use its address instead.
 
 Linux and macOS:
 
 ```sh
-curl -fsSL https://updates.example.org/install.sh | sh
+curl -fsSL https://github.com/avitwil/stellarcortex-advence/releases/latest/download/install.sh | sh
 ```
 
 Windows (PowerShell, as your normal user):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://updates.example.org/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/avitwil/stellarcortex-advence/releases/latest/download/install.ps1 | iex"
 ```
 
 The installer:
@@ -161,7 +162,8 @@ Bot computers are Podman containers named `advence-bot-*` with volumes of the sa
 ## Troubleshooting
 
 - **The installer says verification failed**: the feed served files that do not match the
-  signed release. Nothing was installed. Check the feed upload (`docs/release.md`, step 4).
+  signed release. Nothing was installed. Check the release files
+  (`docs/release.md`, steps 3 and 4).
 - **Bot computers are unavailable**: run `advence computer setup` and follow what it prints;
   Settings → Cloud computer shows the runtime and image state.
 - **Lost all devices**: on the server run `advence admin reset`, then `advence pair`.

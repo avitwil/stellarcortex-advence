@@ -7,9 +7,9 @@ runs the Bots and can read their content. Private, proprietary project (`LICENSE
 
 ## Use it
 
-- Server: one line per OS from your own update feed, see `docs/admin-guide.md`.
-  - Linux and macOS: `curl -fsSL https://<your feed>/install.sh | sh`
-  - Windows: `powershell -ExecutionPolicy Bypass -c "irm https://<your feed>/install.ps1 | iex"`
+- Server: one line per OS from the latest release, see `docs/admin-guide.md`.
+  - Linux and macOS: `curl -fsSL https://github.com/avitwil/stellarcortex-advence/releases/latest/download/install.sh | sh`
+  - Windows: `powershell -ExecutionPolicy Bypass -c "irm https://github.com/avitwil/stellarcortex-advence/releases/latest/download/install.ps1 | iex"`
 - Apps and everyday use: `docs/user-guide.md`.
 - Releasing and signing: `docs/release.md`.
 

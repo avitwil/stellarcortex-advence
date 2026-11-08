@@ -38,7 +38,9 @@ public class AppUpdatePlugin extends Plugin {
     private static final long MAX_APK = 512L * 1024 * 1024;
     private final OkHttpClient http = new OkHttpClient.Builder()
         .connectionSpecs(Collections.singletonList(ConnectionSpec.MODERN_TLS))
-        .followRedirects(false)
+        // GitHub release downloads redirect to its file host; an https -> http redirect is never
+        // followed. The signed manifest and the hash protect the bytes either way.
+        .followRedirects(true)
         .followSslRedirects(false)
         .callTimeout(10, TimeUnit.MINUTES)
         .build();
@@ -66,7 +68,7 @@ public class AppUpdatePlugin extends Plugin {
             return;
         }
         execute(() -> {
-            try (Response res = http.newCall(new Request.Builder().url(feed() + "/android/" + which).build()).execute()) {
+            try (Response res = http.newCall(new Request.Builder().url(feed() + "/android-" + which).build()).execute()) {
                 if (!res.isSuccessful() || res.body() == null) throw new Exception("feed returned " + res.code());
                 byte[] b = readLimited(res.body().byteStream(), MAX_SMALL);
                 JSObject r = new JSObject();
@@ -103,7 +105,7 @@ public class AppUpdatePlugin extends Plugin {
                 for (File old : dir.listFiles() == null ? new File[0] : dir.listFiles()) old.delete();
                 MessageDigest md = MessageDigest.getInstance("SHA-256");
                 long total = 0;
-                try (Response res = http.newCall(new Request.Builder().url(feed() + "/android/" + Uri.encode(name)).build()).execute()) {
+                try (Response res = http.newCall(new Request.Builder().url(feed() + "/" + Uri.encode(name)).build()).execute()) {
                     if (!res.isSuccessful() || res.body() == null) throw new Exception("feed returned " + res.code());
                     try (InputStream in = res.body().byteStream(); OutputStream os = new FileOutputStream(out)) {
                         byte[] buf = new byte[64 * 1024];

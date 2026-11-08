@@ -55,8 +55,8 @@ chmod 700 "$ROOT"
 
 # 1. Manifest. Not trusted yet: it only names the Node.js release to fetch, and Node.js itself
 #    is checked against nodejs.org. The signature is checked with that Node.js in step 3.
-fetch "$FEED/server/manifest.json" "$TMP/manifest.json"
-fetch "$FEED/server/manifest.json.sig" "$TMP/manifest.json.sig"
+fetch "$FEED/server-manifest.json" "$TMP/manifest.json"
+fetch "$FEED/server-manifest.json.sig" "$TMP/manifest.json.sig"
 NODE_VERSION=$(sed -n 's/.*"runtime": *"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' "$TMP/manifest.json" | head -n 1)
 [ -n "$NODE_VERSION" ] || die "the release manifest names no Node.js runtime"
 
@@ -123,7 +123,7 @@ if (mode === 'check') {
   const data = fs.readFileSync(`${dir}/bundle.tar.gz`);
   if (data.length !== f.size || crypto.createHash('sha256').update(data).digest('hex') !== f.sha256) { console.error('the server bundle does not match the signed manifest'); process.exit(3); }
   process.stdout.write(m.version);
-} else process.stdout.write(`${feed}/server/${encodeURIComponent(f.name)}`);
+} else process.stdout.write(`${feed}/${encodeURIComponent(f.name)}`);
 EOF
 INSTALLED=$(cat "$ROOT/current" 2>/dev/null || true)
 URL=$("$NODE" "$TMP/verify.cjs" "$TMP" "$RELEASE_KEYS" "$OS" "$ARCH" "$FEED" url "$INSTALLED") || die "verification failed; nothing was installed"

@@ -249,7 +249,7 @@ can be done with the keyboard and the screen reader.
 Create the release key on your own computer (`docs/release.md`, step 1), set the repository
 variables, and run **Actions → release-candidate**. Pass: every job is green, the `feed-<version>`
 artifact verifies with `scripts/release/verify.mjs` against your public key, and the workflow log
-shows no key material. Publishing stays your step (C-07).
+shows no key material. A signed run leaves a draft release; publishing it stays your step (C-07).
 
 ## Results
 | Check | Date | Result | Notes |

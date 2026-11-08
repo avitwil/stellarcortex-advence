@@ -1,10 +1,11 @@
 # Release candidate (P7, D-24, NFR-SEC-10). Run by hand only. Builds every installer and bundle,
 # writes the release manifests, signs them when the release key is set as a secret, verifies
 # them against the pinned public key, and keeps the result as a private workflow artifact.
-# Nothing is published, tagged or released here: the owner approves and uploads the feed
-# folder to their own server (C-07, docs/release.md).
+# Nothing is published or tagged here. A signed candidate becomes a draft GitHub release; it goes
+# live only when the owner publishes it (C-07, docs/release.md).
 #
-# Repository variables (public values): ADVENCE_RELEASE_PUBKEY, ADVENCE_FEED_URL, ADVENCE_ANDROID_SHA1.
+# Repository variables (public values): ADVENCE_RELEASE_PUBKEY, ADVENCE_ANDROID_SHA1, and
+# optionally ADVENCE_FEED_URL (default: this repository's GitHub releases).
 # Secrets (optional): ADVENCE_RELEASE_KEY (the release key, never printed; a secret of the
 # `release` environment, not of the repository),
 # ADVENCE_ANDROID_KEYSTORE_B64 and its passwords. Without the release key the candidate is
@@ -30,7 +31,8 @@ concurrency:
   cancel-in-progress: false
 env:
   ADVENCE_RELEASE_PUBKEY: ${{ vars.ADVENCE_RELEASE_PUBKEY }}
-  ADVENCE_FEED_URL: ${{ vars.ADVENCE_FEED_URL }}
+  # Default: this repository's GitHub releases (DL-086).
+  ADVENCE_FEED_URL: ${{ vars.ADVENCE_FEED_URL || format('https://github.com/{0}/releases/latest/download', github.repository) }}
   ADVENCE_ANDROID_SHA1: ${{ vars.ADVENCE_ANDROID_SHA1 }}
   VERSION: ${{ inputs.version }}
 
@@ -159,6 +161,9 @@ jobs:
     # needs the owner's approval and runs only from allowed branches (docs/release.md).
     environment: release
     timeout-minutes: 15
+    permissions:
+      contents: write   # only to create the draft release below
+
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -172,14 +177,17 @@ jobs:
           NOTES: ${{ inputs.notes }}
           VC: ${{ inputs.version_code }}
         run: |
-          mkdir -p feed/server feed/desktop feed/android
-          cp dl/server-*/*.tar.gz feed/server/
-          cp dl/desktop-*/* feed/desktop/
-          cp dl/android/*.apk feed/android/
+          # Each component's manifest lists that component's files; the feed itself is one flat
+          # folder, the layout of a GitHub release (DL-086).
+          mkdir -p stage/server stage/desktop stage/android feed
+          cp dl/server-*/*.tar.gz stage/server/
+          cp dl/desktop-*/* stage/desktop/
+          cp dl/android/*.apk stage/android/
           printf '%s' "$NOTES" > notes.txt
-          node scripts/release/manifest.mjs --component server --version "$VERSION" --dir feed/server --out feed/server/manifest.json --notes notes.txt
-          node scripts/release/manifest.mjs --component desktop --version "$VERSION" --dir feed/desktop --out feed/desktop/manifest.json --notes notes.txt
-          node scripts/release/manifest.mjs --component android --version "$VERSION" --version-code "$VC" --dir feed/android --out feed/android/manifest.json --notes notes.txt
+          node scripts/release/manifest.mjs --component server --version "$VERSION" --dir stage/server --out stage/server/server-manifest.json --notes notes.txt
+          node scripts/release/manifest.mjs --component desktop --version "$VERSION" --dir stage/desktop --out stage/desktop/desktop-manifest.json --notes notes.txt
+          node scripts/release/manifest.mjs --component android --version "$VERSION" --version-code "$VC" --dir stage/android --out stage/android/android-manifest.json --notes notes.txt
+          cp stage/server/* stage/desktop/* stage/android/* feed/
           node scripts/release/render-installers.mjs --feed "$ADVENCE_FEED_URL" --keys "$ADVENCE_RELEASE_PUBKEY" --out feed
       - name: Sign with the release key (NFR-SEC-10)
         env:
@@ -190,16 +198,28 @@ jobs:
             exit 0
           fi
           for c in server desktop android; do
-            node scripts/release/sign.mjs --expect "$ADVENCE_RELEASE_PUBKEY" "feed/$c/manifest.json"
+            node scripts/release/sign.mjs --expect "$ADVENCE_RELEASE_PUBKEY" "feed/$c-manifest.json"
           done
       - name: Verify every manifest and file against the pinned key
         run: |
           [ -f feed/UNSIGNED.txt ] && exit 0
           for c in server desktop android; do
-            node scripts/release/verify.mjs --pub "$ADVENCE_RELEASE_PUBKEY" "feed/$c/manifest.json" --dir "feed/$c"
+            node scripts/release/verify.mjs --pub "$ADVENCE_RELEASE_PUBKEY" "feed/$c-manifest.json" --dir feed
           done
       - uses: actions/upload-artifact@v4
         with:
           name: feed-${{ inputs.version }}
           path: feed
           retention-days: 30
+      - name: Draft GitHub release (not published)
+        # A draft is visible only to people with write access. Publishing it is the owner's
+        # approval (C-07); installs then pick it up from releases/latest/download.
+        if: hashFiles('feed/UNSIGNED.txt') == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          PRE=""
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          printf '%s' "$NOTES" > notes.txt
+          gh release create "v$VERSION" feed/* --repo "$GITHUB_REPOSITORY" --draft $PRE --target "$GITHUB_SHA" --title "StellarCortex Advence $VERSION" --notes-file notes.txt

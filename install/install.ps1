@@ -33,8 +33,8 @@ try {
   Write-Host "StellarCortex Advence: installing into $Root"
   # 1. Manifest. Not trusted yet: it only names the Node.js release, which is checked against
   #    nodejs.org. Its signature is checked with that Node.js in step 3.
-  Fetch "$Feed/server/manifest.json" (Join-Path $Tmp 'manifest.json')
-  Fetch "$Feed/server/manifest.json.sig" (Join-Path $Tmp 'manifest.json.sig')
+  Fetch "$Feed/server-manifest.json" (Join-Path $Tmp 'manifest.json')
+  Fetch "$Feed/server-manifest.json.sig" (Join-Path $Tmp 'manifest.json.sig')
   $raw = Get-Content -Raw (Join-Path $Tmp 'manifest.json')
   if ($raw -notmatch '"runtime":\s*"(v\d+\.\d+\.\d+)"') { Fail 'the release manifest names no Node.js runtime' }
   $NodeVersion = $Matches[1]
@@ -98,7 +98,7 @@ if (mode === 'check') {
   const data = fs.readFileSync(`${dir}/bundle.tar.gz`);
   if (data.length !== f.size || crypto.createHash('sha256').update(data).digest('hex') !== f.sha256) { console.error('the server bundle does not match the signed manifest'); process.exit(3); }
   process.stdout.write(m.version);
-} else process.stdout.write(`${feed}/server/${encodeURIComponent(f.name)}`);
+} else process.stdout.write(`${feed}/${encodeURIComponent(f.name)}`);
 '@
   $verifyJs = Join-Path $Tmp 'verify.cjs'
   Set-Content -Path $verifyJs -Value $verify -Encoding UTF8

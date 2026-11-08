@@ -29,7 +29,9 @@ export function installerFor(files: ReleaseFile[], platform: NodeJS.Platform): R
 
 /** Reads at most `max` bytes, within `ms`; a longer or slower answer is dropped. */
 export async function fetchLimited(fetcher: typeof fetch, url: string, max: number, ms = 30_000): Promise<Uint8Array> {
-  const res = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(ms) });
+  // GitHub release downloads redirect to its file host; never to plain http.
+  const res = await fetcher(url, { redirect: 'follow', signal: AbortSignal.timeout(ms) });
+  if (res.url && !res.url.startsWith('https://')) throw new Error('the update feed redirected to plain http');
   if (!res.ok) throw new Error(`${res.status} from the update feed`);
   if (Number(res.headers.get('content-length') ?? 0) > max) throw new Error('update feed response too large');
   const reader = res.body?.getReader();

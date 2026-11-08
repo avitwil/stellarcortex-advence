@@ -61,6 +61,15 @@ export function isLoopback(host: string): boolean {
   return net.isIP(h) === 6 && h === '::1';
 }
 
+function secureUrl(u: string): boolean {
+  try {
+    const url = new URL(u);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopback(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
 export class Updater {
   private checkedAt: number | null = null;
   private error: string | null = null;
@@ -79,7 +88,7 @@ export class Updater {
     const url = new URL(this.o.build.feedUrl);
     // The signature protects the bytes; https still hides what is installed, so plain http
     // is accepted only for a loopback feed (tests and a local mirror).
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) throw new UpdateError('feed_not_https');
+    if (!secureUrl(url.toString())) throw new UpdateError('feed_not_https');
     return url.toString().replace(/\/+$/, '');
   }
 
@@ -113,7 +122,10 @@ export class Updater {
   }
 
   private async get(url: string, timeoutMs: number): Promise<Response> {
-    const res = await (this.o.fetch ?? fetch)(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
+    // GitHub release downloads redirect to GitHub's file host. Redirects are followed, but never
+    // to plain http (except on loopback); the signature and hash protect the bytes either way.
+    const res = await (this.o.fetch ?? fetch)(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+    if (res.url && !secureUrl(res.url)) throw new UpdateError('feed_not_https');
     if (!res.ok) throw new UpdateError('feed_unavailable', `${res.status} from the update feed`);
     return res;
   }
@@ -143,7 +155,7 @@ export class Updater {
     if (!this.enabled) return this.status();
     try {
       const base = this.feed();
-      const [m, s] = await Promise.all([this.get(`${base}/server/manifest.json`, 30_000), this.get(`${base}/server/manifest.json.sig`, 30_000)]);
+      const [m, s] = await Promise.all([this.get(`${base}/server-manifest.json`, 30_000), this.get(`${base}/server-manifest.json.sig`, 30_000)]);
       const manifest = await this.bytes(m, MANIFEST_MAX);
       const sig = new TextDecoder().decode(await this.bytes(s, 1024));
       this.latest = verifyRelease(manifest, sig, this.o.build.releaseKeys, 'server');
@@ -187,7 +199,7 @@ export class Updater {
       const download = path.join(work, 'bundle.tar.gz');
       const staging = path.join(work, 'staging');
       try {
-        const res = await this.get(`${this.feed()}/server/${encodeURIComponent(f.name)}`, 15 * 60_000);
+        const res = await this.get(`${this.feed()}/${encodeURIComponent(f.name)}`, 15 * 60_000);
         if (!res.body) throw new UpdateError('feed_unavailable');
         const hash = createHash('sha256');
         let size = 0;

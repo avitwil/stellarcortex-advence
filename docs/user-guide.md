@@ -17,8 +17,9 @@ Bots see and do. Keep the server in trusted hands.
   **Open Anyway** (the app is ad-hoc signed, not notarized).
 - **Linux**: the `.AppImage` (make it executable and run it) or the `.deb`
   (`sudo apt install ./stellarcortex-advence-<version>-linux-*.deb`).
-- **Android 9 or newer**: open the `.apk` from your server's update address on the phone and allow
-  installing from that source when asked.
+- **Android 9 or newer**: on the phone, download the `.apk` for your phone from the latest
+  release on the project's GitHub **Releases** page and open it; allow installing from that
+  source when asked.
 
 ## Connect to your server
 
@@ -82,7 +83,7 @@ off per Bot in its profile, or mute everything in **Settings → Notifications**
 
 ## Updates
 
-Apps update from your server's update address and check each update's signature first.
+Apps update from the project's published releases and check each update's signature first.
 - Desktop: the update downloads in the background and installs when you quit (on macOS the
   verified installer opens for you to drag in).
 - Android: **Settings → Updates → Check for updates**, then **Download and install**.

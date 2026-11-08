@@ -1,5 +1,5 @@
 // Verifies a signed manifest and, with --dir, every file it lists (NFR-SEC-10).
-//   node scripts/release/verify.mjs --pub <key> out/server/manifest.json --dir out/server
+//   node scripts/release/verify.mjs --pub <key> feed/server-manifest.json --dir feed
 import fs from 'node:fs';
 import path from 'node:path';
 import { args, sha256File, verify } from './lib.mjs';

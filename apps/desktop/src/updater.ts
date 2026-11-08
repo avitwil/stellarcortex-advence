@@ -35,8 +35,7 @@ const fetchBytes = (url: string, max: number, ms?: number) => fetchLimited(net.f
 const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
 async function signedManifest(): Promise<{ manifest: Uint8Array; signature: string }> {
-  const base = `${FEED_URL}/desktop`;
-  const [manifest, sig] = await Promise.all([fetchBytes(`${base}/manifest.json`, 256 * 1024), fetchBytes(`${base}/manifest.json.sig`, 1024)]);
+  const [manifest, sig] = await Promise.all([fetchBytes(`${FEED_URL}/desktop-manifest.json`, 256 * 1024), fetchBytes(`${FEED_URL}/desktop-manifest.json.sig`, 1024)]);
   return { manifest, signature: new TextDecoder().decode(sig) };
 }
 
@@ -48,7 +47,7 @@ async function checkMac(): Promise<void> {
   if (compareVersions(m.version, app.getVersion()) <= 0 || offered === m.version) return;
   const f = installerFor(m.files, 'darwin');
   if (!f) return;
-  const bytes = await fetchBytes(`${FEED_URL}/desktop/${encodeURIComponent(f.name)}`, f.size, 15 * 60_000);
+  const bytes = await fetchBytes(`${FEED_URL}/${encodeURIComponent(f.name)}`, f.size, 15 * 60_000);
   if (!fileMatches(f, bytes)) throw new Error('downloaded installer does not match the signed release');
   const out = path.join(app.getPath('downloads'), f.name);
   fs.writeFileSync(out, bytes);
@@ -58,7 +57,7 @@ async function checkMac(): Promise<void> {
 
 async function startElectronUpdater(): Promise<() => void> {
   const { autoUpdater } = await import('electron-updater');
-  autoUpdater.setFeedURL({ provider: 'generic', url: `${FEED_URL}/desktop` });
+  autoUpdater.setFeedURL({ provider: 'generic', url: FEED_URL });
   autoUpdater.autoDownload = true;
   // Never let electron-updater install by itself (see the top of this file).
   autoUpdater.autoInstallOnAppQuit = false;

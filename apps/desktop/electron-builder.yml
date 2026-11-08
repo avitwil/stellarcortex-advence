@@ -22,7 +22,7 @@ afterPack: build/afterPack.cjs
 publish:
   - provider: generic
     # Replaced at release time with the owner's self-hosted feed (D-24).
-    url: https://updates.stellarcortex.invalid/desktop
+    url: https://updates.stellarcortex.invalid
 win:
   target:
     - target: nsis
