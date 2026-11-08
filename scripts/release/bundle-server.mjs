@@ -3,7 +3,7 @@
 // Output: out/server/advence-server-<version>-<platform>-<arch>.tar.gz with
 //   build-info.json  version, pinned release key(s), feed URL, Android signing SHA-1
 //   launcher.mjs     the service entry (apps/server/launcher)
-//   server/          `pnpm deploy --prod` of @advence/server (dist + production node_modules)
+//   server/          `pnpm deploy --prod` of @advence/server (dist + a flat production node_modules)
 //   ui/dist/         the React UI, served only when the browser UI is turned on (D-16)
 //   image/           the Bot computer image build context, built locally on the host (DL-003)
 // Native modules (better-sqlite3) are per OS and CPU, so each bundle is built on its own OS.
@@ -35,7 +35,9 @@ const sameDrive = path.parse(path.resolve(os.tmpdir())).root.toLowerCase() === p
 const tmpBase = sameDrive ? os.tmpdir() : path.join(path.dirname(root), '.advence-tmp');
 fs.mkdirSync(tmpBase, { recursive: true });
 const stage = fs.mkdtempSync(path.join(tmpBase, 'advence-bundle-'));
-sh('pnpm', ['--filter', '@advence/server', 'deploy', '--prod', '--legacy', path.join(stage, 'server')]);
+// A flat (hoisted) node_modules: pnpm's default layout is built from symlinks, which tar on
+// Windows stores as copies, so packages there could not find their own dependencies.
+sh('pnpm', ['--filter', '@advence/server', 'deploy', '--prod', '--legacy', '--config.node-linker=hoisted', path.join(stage, 'server')]);
 if (!fs.existsSync(path.join(stage, 'server', 'dist', 'main.js'))) throw new Error('server/dist/main.js missing from the deploy');
 fs.cpSync(path.join(root, 'apps', 'ui', 'dist'), path.join(stage, 'ui', 'dist'), { recursive: true });
 fs.cpSync(path.join(root, 'images', 'bot-computer'), path.join(stage, 'image'), { recursive: true });
