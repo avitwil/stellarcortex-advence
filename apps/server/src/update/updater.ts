@@ -158,6 +158,8 @@ export class Updater {
       if (this.error) throw new UpdateError(this.error);
       const m = this.latest;
       if (!m || compareVersions(m.version, this.o.build.version) <= 0) throw new UpdateError('up_to_date');
+      // Native modules match one Node.js major; a new major comes with a fresh install.
+      if (m.runtime && m.runtime.split('.')[0] !== process.version.split('.')[0]) throw new UpdateError('runtime_changed', `${m.version} needs Node.js ${m.runtime}; run the installer again`);
       const f = this.fileFor(m);
       const versions = path.join(root, 'versions');
       fs.mkdirSync(versions, { recursive: true });

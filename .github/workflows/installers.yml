@@ -32,3 +32,49 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
           retention-days: 7
+
+  # FR-CLI-06: the one-line server installer on a fresh runner of each OS, then a signed update
+  # through the installed service. Hosted macOS and Windows runners have no nested
+  # virtualization for a Podman machine, so Bot computers are checked there by hand (MC-P7-*).
+  server-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            skip_computer: ''
+          - os: macos-15
+            skip_computer: '1'
+          - os: windows-2025
+            skip_computer: '1'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh install (Linux, with Podman and the Bot computer image)
+        if: runner.os == 'Linux'
+        env:
+          ADVENCE_SKIP_COMPUTER: ${{ matrix.skip_computer }}
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo loginctl enable-linger "$(id -un)"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for i in $(seq 1 20); do [ -S "$XDG_RUNTIME_DIR/bus" ] && break; sleep 1; done
+          bash tests/install/fresh-install.sh
+      - name: Fresh install (macOS)
+        if: runner.os == 'macOS'
+        env:
+          ADVENCE_SKIP_COMPUTER: ${{ matrix.skip_computer }}
+        run: bash tests/install/fresh-install.sh
+      - name: Fresh install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ADVENCE_SKIP_COMPUTER: ${{ matrix.skip_computer }}
+        run: ./tests/install/fresh-install.ps1

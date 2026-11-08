@@ -5,7 +5,7 @@ import type { AppContext } from '../context.js';
 import { HttpError, router } from '../http.js';
 import { UpdateError, type Updater } from '../update/updater.js';
 
-const STATUS: Record<string, number> = { not_installed: 409, busy: 409, up_to_date: 409 };
+const STATUS: Record<string, number> = { not_installed: 409, busy: 409, up_to_date: 409, runtime_changed: 409 };
 
 export function registerUpdateRoutes(app: FastifyInstance, ctx: AppContext, updater: Updater): void {
   const route = router(app, ctx);

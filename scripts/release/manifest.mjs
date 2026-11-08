@@ -8,7 +8,7 @@ import { args, sha256File } from './lib.mjs';
 const a = args(process.argv.slice(2));
 const { component, version, dir } = a;
 if (!component || !version || !dir || !a.out) {
-  console.error('usage: manifest.mjs --component server|desktop|android --version x.y.z --dir <files> --out <manifest.json> [--version-code n] [--notes file]');
+  console.error('usage: manifest.mjs --component server|desktop|android --version x.y.z --dir <files> --out <manifest.json> [--version-code n] [--runtime vX.Y.Z] [--notes file]');
   process.exit(2);
 }
 const files = fs.readdirSync(dir).filter((f) => !f.startsWith('manifest.json') && fs.statSync(path.join(dir, f)).isFile()).sort().map((name) => {
@@ -19,6 +19,7 @@ const files = fs.readdirSync(dir).filter((f) => !f.startsWith('manifest.json') &
 if (!files.length) throw new Error(`no files in ${dir}`);
 const manifest = {
   product: 'stellarcortex-advence', component, version, ...(a['version-code'] ? { versionCode: Number(a['version-code']) } : {}),
+  ...(component === 'server' ? { runtime: a.runtime ?? process.version } : {}),
   createdAt: new Date().toISOString(), notes: a.notes ? fs.readFileSync(a.notes, 'utf8').slice(0, 4000) : '', files,
 };
 fs.writeFileSync(a.out, `${JSON.stringify(manifest, null, 2)}\n`);

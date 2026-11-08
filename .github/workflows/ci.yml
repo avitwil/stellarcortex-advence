@@ -76,6 +76,29 @@ jobs:
           ADVENCE_REAL_PODMAN_IMAGE: localhost/advence-bot-computer:ci
         run: pnpm exec vitest run --project server src/container.real.test.ts
 
+  install-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh install, tamper refusal and signed update via the service (FR-CLI-06, FR-CLI-05, NFR-REL-02)
+        env:
+          ADVENCE_SKIP_COMPUTER: '1'
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for i in $(seq 1 20); do [ -S "$XDG_RUNTIME_DIR/bus" ] && break; sleep 1; done
+          bash tests/install/fresh-install.sh
+      - name: Service log
+        if: failure()
+        run: XDG_RUNTIME_DIR="/run/user/$(id -u)" journalctl --user -u advence.service -n 200 --no-pager || true
+
   engines:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

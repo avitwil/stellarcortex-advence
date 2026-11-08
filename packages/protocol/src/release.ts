@@ -21,7 +21,7 @@ export const ReleaseFile = z.object({
   arch: z.string().max(20).optional(),
   sha256: Hex64,
   size: z.number().int().min(1).max(4 * 1024 ** 3),
-}).strict();
+});
 export type ReleaseFile = z.infer<typeof ReleaseFile>;
 
 export const ReleaseManifest = z.object({
@@ -30,10 +30,12 @@ export const ReleaseManifest = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/),
   /** Android versionCode, so the app can compare without parsing names */
   versionCode: z.number().int().min(1).optional(),
+  /** server bundles: the Node.js release their native modules were built for */
+  runtime: z.string().regex(/^v\d+\.\d+\.\d+$/).optional(),
   createdAt: z.string(),
   notes: z.string().max(4000).default(''),
   files: z.array(ReleaseFile).min(1).max(50),
-}).strict();
+}); // unknown fields are dropped, so older installs can read newer manifests
 export type ReleaseManifest = z.infer<typeof ReleaseManifest>;
 
 export class ReleaseError extends Error {

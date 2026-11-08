@@ -4,6 +4,10 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "files": [
+    "dist",
+    "launcher"
+  ],
   "bin": {
     "advence": "./dist/main.js"
   },

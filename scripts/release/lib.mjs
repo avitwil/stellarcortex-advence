@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const DOMAIN = 'stellarcortex-advence release v1\n';
 const PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
@@ -51,4 +52,4 @@ export function args(argv) {
   return out;
 }
 
-export const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
