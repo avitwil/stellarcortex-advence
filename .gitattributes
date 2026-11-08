@@ -1,0 +1,6 @@
+# Every text file is checked out with LF on every OS, so scripts, shebangs and test fixtures
+# behave the same on Windows as on Linux and macOS.
+* text=auto eol=lf
+# Windows batch files keep the line endings they were committed with.
+*.bat -text
+*.cmd -text

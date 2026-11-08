@@ -29,5 +29,5 @@ export interface AppContext {
   /** Where subscription CLIs run (the Bot's container). */
   processHost: ProcessHost;
   /** Test-only overrides; never set in production. */
-  testHooks?: { anthropicBaseUrl?: string; /** tests drive routine ticks and polls themselves */ manualTriggers?: boolean };
+  testHooks?: { anthropicBaseUrl?: string; /** tests drive routine ticks and polls themselves */ manualTriggers?: boolean; /** host control acts as on this OS (tests use the X11 path with fake tools) */ hostPlatform?: NodeJS.Platform };
 }

@@ -13,6 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The unit suite on Windows and macOS too (DL-087). The Bot computer stays a Linux container;
+  # the tests that stand a folder in for it run its POSIX commands with the host's shell
+  # (Git for Windows' bash on Windows).
+  unit-cross:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

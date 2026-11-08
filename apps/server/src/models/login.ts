@@ -10,7 +10,7 @@ const MARK = 'ADVENCE_AUTH:';
 
 export const CODEX_LOGIN_SCRIPT =
   'umask 077; d=$(mktemp -d); CODEX_HOME="$d" codex login --device-auth; r=$?; ' +
-  `if [ $r -eq 0 ] && [ -s "$d/auth.json" ]; then printf '${MARK}'; base64 -w0 "$d/auth.json"; echo; else r=1; fi; rm -rf "$d"; exit $r`;
+  `if [ $r -eq 0 ] && [ -s "$d/auth.json" ]; then printf '${MARK}'; base64 < "$d/auth.json" | tr -d '\\n'; echo; else r=1; fi; rm -rf "$d"; exit $r`;
 
 interface Pending { state: DeviceLogin; ac: AbortController; started: number }
 

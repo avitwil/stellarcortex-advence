@@ -16,6 +16,7 @@ import { startEverythingHttp, type Running } from './test-utils/mcp-fixtures.js'
 import { CONNECT_SCOPES } from './google/connections.js';
 import { containerName } from './computer/manager.js';
 import { parseCron, nextRun, CronError } from './proactive/cron.js';
+import { touchStamp } from './proactive/engine.js';
 import type { ToolProvider } from './chat/runtime.js';
 import type { ToolCall } from './models/types.js';
 
@@ -292,6 +293,9 @@ describe('FR-PRO-02 each trigger type fires', () => {
     await p().idle();
     const [run] = await runsOf(r.id);
     expect(run).toMatchObject({ status: 'done', trigger: '1 file(s) changed in inbox' });
+    // The "since" mark reaches the computer as a POSIX `touch -t` stamp in UTC.
+    expect(touchStamp(0)).toBe('197001010000.00');
+    expect(touchStamp(1_794_166_345)).toBe('202611081932.25');
     expect(seen).toContain('inbox/report.csv');
     await req(owner, 'DELETE', `/v1/routines/${r.id}`);
   });

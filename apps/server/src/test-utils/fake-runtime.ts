@@ -1,6 +1,6 @@
 // In-memory container runtime for tests (FR-PC-*): records every container spec, runs `exec`
 // locally in a per-Bot home folder with fake xdotool/import on PATH, and serves a fake
-// websockify for the live view.
+// websockify for the live view. Commands run as the container would run them (posix.ts).
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -10,6 +10,7 @@ import readline from 'node:readline';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ContainerInfo, ContainerRuntime, ContainerSpec, ExecOptions, InteractiveCommand, RuntimeInfo } from '../computer/runtime.js';
 import type { ProcessRun } from '../models/host.js';
+import { hostCommand, hostEnv, shPath, withPath } from './posix.js';
 
 export const FAKE_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 0xff, 0xd9]);
 
@@ -36,7 +37,7 @@ export class FakeRuntime implements ContainerRuntime {
   static async start(): Promise<FakeRuntime> {
     const r = new FakeRuntime();
     fs.mkdirSync(r.bin);
-    fs.writeFileSync(path.join(r.bin, 'xdotool'), `#!/bin/sh\necho "xdotool $*" >> "${r.inputLog}"\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(r.bin, 'xdotool'), `#!/bin/sh\necho "xdotool $*" >> "${shPath(r.inputLog)}"\n`, { mode: 0o755 });
     fs.writeFileSync(path.join(r.bin, 'import'), `#!/bin/sh\nprintf '${[...FAKE_JPEG].map((b) => `\\${b.toString(8).padStart(3, '0')}`).join('')}'\n`, { mode: 0o755 });
     // Fake websockify: echoes RFB bytes back, prefixed with "echo:".
     r.http = http.createServer();
@@ -115,7 +116,8 @@ export class FakeRuntime implements ContainerRuntime {
   }
   exec(name: string, argv: string[], o: ExecOptions): ProcessRun {
     if (!this.containers.get(name)?.running) throw new Error('not running');
-    const p = spawn(argv[0]!, argv.slice(1), { cwd: this.home(name), env: { PATH: `${this.bin}:${process.env.PATH}`, HOME: this.home(name), ...o.env }, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal });
+    const { command, args } = hostCommand(argv);
+    const p = spawn(command, args, { cwd: this.home(name), env: { ...hostEnv(), PATH: withPath(this.bin), HOME: this.home(name), ...o.env }, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal });
     let stderr = '';
     p.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
     p.on('error', () => undefined);
@@ -128,7 +130,7 @@ export class FakeRuntime implements ContainerRuntime {
   interactive(name: string, argv: string[], env: Record<string, string>): InteractiveCommand {
     if (!this.containers.get(name)?.running) throw new Error('not running');
     this.interactives.push(name);
-    return { command: argv[0]!, args: argv.slice(1), env: { PATH: `${this.bin}:${process.env.PATH}`, HOME: this.home(name), ...env }, cwd: this.home(name) };
+    return { command: argv[0]!, args: argv.slice(1), env: { PATH: withPath(this.bin), HOME: this.home(name), ...env }, cwd: this.home(name) };
   }
   async diskUsage() { return this.disk; }
 }

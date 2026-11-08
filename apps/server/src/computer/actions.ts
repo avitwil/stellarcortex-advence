@@ -48,10 +48,11 @@ const BUTTON = { left: '1', middle: '2', right: '3' } as const;
 
 /** One X11 action as an xdotool/ImageMagick shell script; values come from the environment. */
 export function x11Script(a: DesktopAction): { script: string; env: Record<string, string> } {
-  const shot = 'sleep 0.4; import -window root -quality 70 jpg:- | base64 -w0';
+  // `tr -d` instead of GNU `base64 -w0`, so the same script also runs where base64 is BSD's.
+  const shot = "sleep 0.4; import -window root -quality 70 jpg:- | base64 | tr -d '\\n'";
   switch (a.action) {
     case 'screenshot':
-      return { script: 'import -window root -quality 70 jpg:- | base64 -w0', env: {} };
+      return { script: "import -window root -quality 70 jpg:- | base64 | tr -d '\\n'", env: {} };
     case 'click':
       return { script: `xdotool mousemove --sync "$AX" "$AY" click --repeat "$AN" "$AB"; ${shot}`, env: { AX: String(a.x), AY: String(a.y), AN: a.double ? '2' : '1', AB: BUTTON[a.button ?? 'left'] } };
     case 'move':

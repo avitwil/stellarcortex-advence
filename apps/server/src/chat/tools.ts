@@ -113,7 +113,7 @@ export class BotTools implements ToolProvider {
   // ------------------------------------------------------------------ host control (D-12)
   private async host(c: CallCtx, a: DesktopAction): Promise<ActionResult> {
     this.d.activity.log(c.user.id, c.bot.id, 'host.action', { bot: c.bot.name, action: a.action });
-    return hostAction(a, c.signal);
+    return hostAction(a, c.signal, this.ctx.testHooks?.hostPlatform);
   }
 
   // ------------------------------------------------------------------ coding engine (FR-CODE-*)

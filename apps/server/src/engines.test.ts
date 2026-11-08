@@ -8,7 +8,7 @@ import { startTestServer, ownerClient, type TestClient, type TestEnv } from './t
 import { MockModels, type SeenRequest } from './test-utils/mock-models.js';
 import { fakeEngines, readLog, type FakeEngines } from './test-utils/fake-engines.js';
 import { startEngineMock, SHELL_COMMAND } from './test-utils/engine-mock.js';
-import { LocalHost } from './models/host.js';
+import { LocalHost } from './test-utils/local-host.js';
 import { opencodeConfig } from './engines/opencode.js';
 import type { BusEvent } from './events.js';
 
