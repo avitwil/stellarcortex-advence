@@ -29,7 +29,12 @@ if (!a['skip-build']) {
   sh('pnpm', ['--filter', '@advence/server', 'build']);
   sh('pnpm', ['--filter', '@advence/ui', 'build']);
 }
-const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'advence-bundle-'));
+// pnpm deploy cannot link across drive letters on Windows (a C: temp folder with a D: checkout,
+// as on hosted runners), so the staging folder goes on the checkout's drive there.
+const sameDrive = path.parse(path.resolve(os.tmpdir())).root.toLowerCase() === path.parse(root).root.toLowerCase();
+const tmpBase = sameDrive ? os.tmpdir() : path.join(path.dirname(root), '.advence-tmp');
+fs.mkdirSync(tmpBase, { recursive: true });
+const stage = fs.mkdtempSync(path.join(tmpBase, 'advence-bundle-'));
 sh('pnpm', ['--filter', '@advence/server', 'deploy', '--prod', '--legacy', path.join(stage, 'server')]);
 if (!fs.existsSync(path.join(stage, 'server', 'dist', 'main.js'))) throw new Error('server/dist/main.js missing from the deploy');
 fs.cpSync(path.join(root, 'apps', 'ui', 'dist'), path.join(stage, 'ui', 'dist'), { recursive: true });
