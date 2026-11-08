@@ -12,3 +12,4 @@ export * from './computer.js';
 export * from './memory.js';
 export * from './mcp.js';
 export * from './proactive.js';
+export * from './release.js';
