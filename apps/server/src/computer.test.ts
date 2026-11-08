@@ -9,7 +9,8 @@ import { canonicalFrame, newNonce, sign, toB64url, COMPUTER_EVENTS, COMPUTER_WS_
 import { startTestServer, ownerClient, pairedClient, type TestClient, type TestEnv } from './test-utils/harness.js';
 import { MockModels, type SeenRequest } from './test-utils/mock-models.js';
 import { FakeRuntime, FAKE_JPEG } from './test-utils/fake-runtime.js';
-import { LocalHost } from './models/host.js';
+import { LocalHost } from './test-utils/local-host.js';
+import { fakeTool, shPath, windowsBash } from './test-utils/posix.js';
 import { fakeCliDir } from './test-utils/mock-models.js';
 import { containerName } from './computer/manager.js';
 import { networkArgs, PodmanRuntime } from './computer/runtime.js';
@@ -49,7 +50,7 @@ function toolScript(tool: string, input: unknown) {
 beforeAll(async () => {
   models = await MockModels.start();
   rt = await FakeRuntime.start();
-  env = await startTestServer({ boot: { modelFetch: models.fetch, containerRuntime: rt, processHost: new LocalHost({ binDir: fakeCliDir() }) } });
+  env = await startTestServer({ boot: { modelFetch: models.fetch, containerRuntime: rt, processHost: new LocalHost({ binDir: fakeCliDir() }), testHooks: { hostPlatform: 'linux' } } });
   env.server.ctx.bus.subscribe((e) => void events.push(e));
   owner = await ownerClient(env);
 });
@@ -257,7 +258,8 @@ describe('FR-PC-09 Host control (D-12)', () => {
 
     await req(owner, 'PATCH', `/v1/bots/${b.id}`, { hostControl: true });
     const saved = { PATH: process.env.PATH, DISPLAY: process.env.DISPLAY, WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY };
-    process.env.PATH = `${rt.bin}:${process.env.PATH}`;
+    // The X11 path runs `sh` with the fake xdotool first on PATH (on Windows, Git's sh).
+    process.env.PATH = [rt.bin, ...(process.platform === 'win32' ? [path.dirname(windowsBash())] : []), process.env.PATH].join(path.delimiter);
     process.env.DISPLAY = ':99';
     delete process.env.WAYLAND_DISPLAY;
     fs.rmSync(rt.inputLog, { force: true });
@@ -290,9 +292,8 @@ describe('FR-PC-09 Host control (D-12)', () => {
 describe('NFR-SEC-08 Podman command lines', () => {
   it('create: non-root image, no new privileges, all capabilities dropped but CAP_SYS_CHROOT, default seccomp, only the Bot volume, noVNC on loopback; exec passes secrets by name', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'advence-podman-'));
-    const fake = path.join(dir, 'podman');
-    fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\nprintf '%s' "$SECRET_TOKEN" > "${dir}/env"\n`, { mode: 0o755 });
-    const p = new PodmanRuntime(fake);
+    const fake = fakeTool(dir, 'podman', `printf '%s\\n' "$@" > "${shPath(dir)}/argv"\nprintf '%s' "$SECRET_TOKEN" > "${shPath(dir)}/env"\n`);
+    const p = new PodmanRuntime(fake.bin, fake.args);
     await p.create({ name: 'advence-bot-x', image: 'localhost/img:1', volume: 'advence-bot-x-home', vncSecret: 's', cpus: 2, memoryMb: 2048, gpu: false, network: ['--network', 'pasta:--no-map-gw'], labels: { 'advence.bot': 'x' } });
     const argv = fs.readFileSync(path.join(dir, 'argv'), 'utf8').trim().split('\n');
     expect(argv).toEqual(expect.arrayContaining(['--security-opt', 'no-new-privileges', '--cap-drop', 'all', '--cap-add', 'SYS_CHROOT', '--cpus', '2', '--memory', '2048m', '-p', '127.0.0.1::6080', '--network', 'pasta:--no-map-gw']));

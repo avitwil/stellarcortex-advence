@@ -86,7 +86,8 @@ function lines(p: ReturnType<typeof spawn>, stdin: string | undefined): ProcessR
 }
 
 export class PodmanRuntime implements ContainerRuntime {
-  constructor(private bin = process.env.ADVENCE_PODMAN ?? 'podman') {}
+  /** `pre` goes before every Podman argument (tests start a fake Podman through a shell). */
+  constructor(private bin = process.env.ADVENCE_PODMAN ?? 'podman', private pre: string[] = []) {}
 
   private baseEnv(): NodeJS.ProcessEnv {
     const e: NodeJS.ProcessEnv = {};
@@ -98,7 +99,7 @@ export class PodmanRuntime implements ContainerRuntime {
 
   private run(args: string[], o: { stdin?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<Out> {
     return new Promise((resolve) => {
-      const p = spawn(this.bin, args, { env: { ...this.baseEnv(), ...o.env }, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal, timeout: o.timeoutMs ?? 120_000 });
+      const p = spawn(this.bin, [...this.pre, ...args], { env: { ...this.baseEnv(), ...o.env }, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal, timeout: o.timeoutMs ?? 120_000 });
       let stdout = '';
       let stderr = '';
       p.stdout.on('data', (d: Buffer) => (stdout = (stdout + d.toString('utf8')).slice(-1_000_000)));
@@ -167,7 +168,7 @@ export class PodmanRuntime implements ContainerRuntime {
   }
 
   async buildImage(contextDir: string, image: string, onProgress: (p: number) => void, signal: AbortSignal): Promise<void> {
-    const p = spawn(this.bin, ['build', '--pull=missing', '-t', image, contextDir], { env: this.baseEnv(), stdio: ['ignore', 'pipe', 'pipe'], signal });
+    const p = spawn(this.bin, [...this.pre, 'build', '--pull=missing', '-t', image, contextDir], { env: this.baseEnv(), stdio: ['ignore', 'pipe', 'pipe'], signal });
     const tail: string[] = [];
     const onLine = (l: string) => {
       tail.push(l);
@@ -251,7 +252,7 @@ export class PodmanRuntime implements ContainerRuntime {
     const env: NodeJS.ProcessEnv = this.baseEnv();
     for (const k of names) env[k] = o.env![k];
     const args = ['exec', '-i', ...(o.cwd ? ['-w', o.cwd] : []), ...names.flatMap((k) => ['-e', k]), name, ...argv];
-    return lines(spawn(this.bin, args, { env, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal }), o.stdin);
+    return lines(spawn(this.bin, [...this.pre, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal }), o.stdin);
   }
 
   interactive(name: string, argv: string[], extra: Record<string, string>): InteractiveCommand {
@@ -260,7 +261,7 @@ export class PodmanRuntime implements ContainerRuntime {
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.baseEnv())) if (v !== undefined) env[k] = v;
     for (const k of names) env[k] = extra[k]!;
-    return { command: this.bin, args: ['exec', '-i', ...names.flatMap((k) => ['-e', k]), name, ...argv], env };
+    return { command: this.bin, args: [...this.pre, 'exec', '-i', ...names.flatMap((k) => ['-e', k]), name, ...argv], env };
   }
 
   async diskUsage(name: string): Promise<number> {

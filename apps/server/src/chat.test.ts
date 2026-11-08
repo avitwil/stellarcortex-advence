@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { CHAT_EVENTS } from '@advence/protocol';
 import { startTestServer, ownerClient, pairedClient, type TestClient, type TestEnv } from './test-utils/harness.js';
 import { MockModels, fakeCliDir } from './test-utils/mock-models.js';
-import { LocalHost } from './models/host.js';
+import { LocalHost } from './test-utils/local-host.js';
 import type { BusEvent } from './events.js';
 
 let models: MockModels;

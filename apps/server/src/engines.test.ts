@@ -8,7 +8,7 @@ import { startTestServer, ownerClient, type TestClient, type TestEnv } from './t
 import { MockModels, type SeenRequest } from './test-utils/mock-models.js';
 import { fakeEngines, readLog, type FakeEngines } from './test-utils/fake-engines.js';
 import { startEngineMock, SHELL_COMMAND } from './test-utils/engine-mock.js';
-import { LocalHost } from './models/host.js';
+import { LocalHost } from './test-utils/local-host.js';
 import { opencodeConfig } from './engines/opencode.js';
 import type { BusEvent } from './events.js';
 
@@ -117,7 +117,8 @@ describe('FR-CODE-01 engine adapters', () => {
     for await (const ev of s.stream()) if (ev.type === 'done') expect(ev.ok).toBe(true);
     const last = readLog(fakes).filter((l) => l.engine === 'codex').pop();
     expect(last.auth).toBe(true);
-    expect(last.codexHome).toBe(path.join(fakes.home, '.advence/codex'));
+    // Git for Windows' bash hands paths over with forward slashes; resolve before comparing.
+    expect(path.resolve(last.codexHome)).toBe(path.join(fakes.home, '.advence', 'codex'));
     expect(JSON.stringify(last.args)).not.toContain('chatgpt-secret-token');
     expect(fs.existsSync(path.join(last.codexHome, 'auth.json'))).toBe(false);
   });

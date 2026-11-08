@@ -1,9 +1,11 @@
 // Fake coding engines for tests (FR-CODE-01): they print the same JSONL as the real Claude Agent
 // SDK, Codex CLI and OpenCode (captured from the real tools) and really run the shell command and
-// file edit they report, in the working directory. Each records its argv and environment names.
+// file edit they report, in the working directory (with a POSIX shell, as in the container).
+// Each records its argv and environment names.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { posixShell } from './posix.js';
 
 export interface FakeEngines { binDir: string; home: string; log: string }
 
@@ -12,7 +14,7 @@ const fs = require('node:fs');
 const cp = require('node:child_process');
 const log = (o) => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(o) + '\\n');
 const out = (j) => process.stdout.write(JSON.stringify(j) + '\\n');
-const sh = (c) => { try { return { out: cp.execSync(c, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), code: 0 }; } catch (e) { return { out: String(e.stdout || '') + String(e.stderr || ''), code: e.status ?? 1 }; } };
+const sh = (c) => { try { return { out: cp.execSync(c, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: ${JSON.stringify(posixShell())} }), code: 0 }; } catch (e) { return { out: String(e.stdout || '') + String(e.stderr || ''), code: e.status ?? 1 }; } };
 `;
 
 export function fakeEngines(): FakeEngines {
@@ -79,7 +81,7 @@ export async function* query({ prompt, options }) {
   const sid = options.resume || '25f9250f-7b5c-4ea3-ae18-72e152c1e4eb';
   yield { type: 'system', subtype: 'init', session_id: sid, cwd: options.cwd, tools: ['Bash', 'Edit'] };
   yield { type: 'assistant', session_id: sid, parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'echo hi > a.txt && cat a.txt' } }] } };
-  const out = cp.execSync('echo hi > a.txt && cat a.txt', { encoding: 'utf8' });
+  const out = cp.execSync('echo hi > a.txt && cat a.txt', { encoding: 'utf8', shell: ${JSON.stringify(posixShell())} });
   yield { type: 'user', session_id: sid, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: out, is_error: false }] } };
   yield { type: 'assistant', session_id: sid, parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 'toolu_2', name: 'Edit', input: { file_path: 'b.txt', old_string: 'bug', new_string: 'fixed' } }] } };
   fs.writeFileSync('b.txt', 'fixed\\n');

@@ -478,8 +478,12 @@ export class Proactivity implements AutonomyPolicy {
     if (since === null || !(await m.isRunning(bot.id))) return;
     // The path is passed as a variable, never spliced into the script.
     // A relative path that starts with "-" would read as a find expression, so it gets "./".
-    const script = 'cd "$HOME" 2>/dev/null; case "$ADVENCE_WATCH" in -*) ADVENCE_WATCH="./$ADVENCE_WATCH";; esac; find -- "$ADVENCE_WATCH" -type f -newermt "@$ADVENCE_SINCE" 2>/dev/null | head -n 50';
-    const p = m.exec(bot.id, ['sh', '-c', script], { env: { ADVENCE_WATCH: path, ADVENCE_SINCE: String(since) }, signal: AbortSignal.timeout(20_000) });
+    // "Changed since" compares with a reference file stamped in UTC (POSIX touch -t and
+    // find -newer, rather than GNU's -newermt).
+    const script =
+      'cd "$HOME" 2>/dev/null; case "$ADVENCE_WATCH" in -*) ADVENCE_WATCH="./$ADVENCE_WATCH";; esac; ' +
+      'ref=$(mktemp) || exit 1; TZ=UTC0 touch -t "$ADVENCE_SINCE" "$ref" && find "$ADVENCE_WATCH" -type f -newer "$ref" 2>/dev/null | head -n 50; rm -f "$ref"';
+    const p = m.exec(bot.id, ['sh', '-c', script], { env: { ADVENCE_WATCH: path, ADVENCE_SINCE: touchStamp(since) }, signal: AbortSignal.timeout(20_000) });
     const out: string[] = [];
     for await (const line of p.lines) out.push(String(line));
     await p.done;
@@ -662,4 +666,10 @@ function toolResult(m: ModelMessage, max: number): string {
   if (m.role !== 'tool') return 'ok';
   const c = m.content.slice(0, max);
   return m.isError ? `error: ${c}` : c || 'ok';
+}
+
+/** Seconds since the epoch as `touch -t` CCYYMMDDhhmm.SS, in UTC. */
+export function touchStamp(sec: number): string {
+  const d = new Date(sec * 1000).toISOString();
+  return `${d.slice(0, 4)}${d.slice(5, 7)}${d.slice(8, 10)}${d.slice(11, 13)}${d.slice(14, 16)}.${d.slice(17, 19)}`;
 }

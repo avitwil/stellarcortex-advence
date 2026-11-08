@@ -28,7 +28,7 @@ export interface ProcessHost {
   run(spec: RunSpec): ProcessRun;
 }
 
-function runProcess(cmd: string, args: string[], env: NodeJS.ProcessEnv, stdin: string, signal: AbortSignal, cwd?: string): ProcessRun {
+export function runProcess(cmd: string, args: string[], env: NodeJS.ProcessEnv, stdin: string, signal: AbortSignal, cwd?: string): ProcessRun {
   const p = spawn(cmd, args, { env, stdio: ['pipe', 'pipe', 'pipe'], signal, cwd });
   let stderr = '';
   p.stderr.on('data', (d: Buffer) => {
@@ -58,7 +58,7 @@ export function botVolume(botId: string): string {
  */
 export class PodmanHost implements ProcessHost {
   private hooks: { running(botId: string): boolean; container(botId: string): string; network(): string[] } | null = null;
-  constructor(private o: { podman?: string; image?: string } = {}) {}
+  constructor(private o: { podman?: string; podmanArgs?: string[]; image?: string } = {}) {}
 
   /** Set by the computer manager so CLIs share the Bot's live computer and its network policy. */
   attach(hooks: { running(botId: string): boolean; container(botId: string): string; network(): string[] }): void {
@@ -85,21 +85,6 @@ export class PodmanHost implements ProcessHost {
         ];
     const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR };
     for (const k of envNames) env[k] = spec.env[k];
-    return runProcess(this.o.podman ?? process.env.ADVENCE_PODMAN ?? 'podman', args, env, spec.stdin, spec.signal);
-  }
-}
-
-/** Runs the command directly; used by tests with fake CLIs. `home` stands in for /home/bot. */
-export class LocalHost implements ProcessHost {
-  constructor(private o: { binDir: string; cwd?: string; home?: string }) {}
-  run(spec: RunSpec): ProcessRun {
-    const [cmd, ...args] = spec.argv;
-    const env: NodeJS.ProcessEnv = { PATH: `${this.o.binDir}:${process.env.PATH}`, ...(this.o.home ? { HOME: this.o.home } : {}), ...spec.env };
-    let cwd = this.o.cwd;
-    if (spec.cwd && this.o.home) {
-      cwd = spec.cwd.replace(/^\/home\/bot/, this.o.home);
-      fs.mkdirSync(cwd, { recursive: true });
-    }
-    return runProcess(cmd!, args, env, spec.stdin, spec.signal, cwd);
+    return runProcess(this.o.podman ?? process.env.ADVENCE_PODMAN ?? 'podman', [...(this.o.podmanArgs ?? []), ...args], env, spec.stdin, spec.signal);
   }
 }

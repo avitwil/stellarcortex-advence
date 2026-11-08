@@ -8,6 +8,7 @@ import { extractLinks, kindForUrl } from './chat/library.js';
 import { ftsQuery } from './chat/search.js';
 import { transcript } from './models/cli.js';
 import { BOT_IMAGE, PodmanHost } from './models/host.js';
+import { fakeTool, shPath } from './test-utils/posix.js';
 
 describe('FR-BOT-03 @mentions', () => {
   const bots = [{ id: 'a', name: 'Ann' }, { id: 'b', name: 'Ann Lee' }, { id: 'c', name: 'מתכנן' }];
@@ -51,9 +52,8 @@ describe('D-07c subscription CLIs', () => {
 
   it('run in the Bot container with secrets passed by name only (NFR-SEC-09)', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'advence-podman-'));
-    const fake = path.join(dir, 'podman');
-    fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\nprintf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" > "${dir}/env"\n`, { mode: 0o755 });
-    const run = new PodmanHost({ podman: fake }).run({ botId: 'bot_x', argv: ['claude', '-p'], stdin: '', env: { CLAUDE_CODE_OAUTH_TOKEN: 'secret-value', 'bad name': 'x' }, signal: new AbortController().signal });
+    const fake = fakeTool(dir, 'podman', `printf '%s\\n' "$@" > "${shPath(dir)}/argv"\nprintf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" > "${shPath(dir)}/env"\n`);
+    const run = new PodmanHost({ podman: fake.bin, podmanArgs: fake.args }).run({ botId: 'bot_x', argv: ['claude', '-p'], stdin: '', env: { CLAUDE_CODE_OAUTH_TOKEN: 'secret-value', 'bad name': 'x' }, signal: new AbortController().signal });
     expect((await run.done).code).toBe(0);
     const argv = fs.readFileSync(path.join(dir, 'argv'), 'utf8').trim().split('\n');
     expect(argv.join(' ')).not.toContain('secret-value');

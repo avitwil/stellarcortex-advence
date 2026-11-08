@@ -124,7 +124,7 @@ describe('FR-MCP-01 MCP client over stdio (in the Bot computer) and Streamable H
     // got the secret env value.
     const envOut = (await tool(bot, toolName('Everything', 'get-env'), {})).content;
     expect(envOut).toContain('secret-env-value');
-    expect(envOut).toContain(rt.root);
+    expect(envOut).toContain(JSON.stringify(rt.root).slice(1, -1)); // the tool prints its env as JSON
   }, 60_000);
 
   it('connects to the everything server over Streamable HTTP in the 2026-07-28 era', async () => {

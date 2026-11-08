@@ -34,4 +34,8 @@ pnpm check        # typecheck, brand check, license audit, cost audit, unit and 
 pnpm test:e2e     # browser and Electron end-to-end tests
 ```
 
+The unit tests run on Linux, macOS and Windows. On Windows they need Git for Windows, whose bash
+runs the Bot computer's shell commands in tests (set `ADVENCE_TEST_BASH` if it is not in the
+default place).
+
 Third-party components are listed in `THIRD_PARTY_NOTICES.md`.

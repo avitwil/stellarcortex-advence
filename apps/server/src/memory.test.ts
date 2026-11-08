@@ -419,7 +419,8 @@ describe('FR-SKL-01/02/04 third-party skills', () => {
     expect(out.content).toContain('~/skills/pdf-tools/');
     const home = rt.home(`advence-bot-${bot.id}`);
     expect(fs.readFileSync(path.join(home, 'skills/pdf-tools/scripts/merge.sh'), 'utf8')).toBe(GOOD['skills/pdf-tools/scripts/merge.sh']);
-    expect(fs.statSync(path.join(home, 'skills/pdf-tools/scripts/merge.sh')).mode & 0o111).toBeTruthy();
+    // Made executable in the computer (Windows files have no execute bit to look at).
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(home, 'skills/pdf-tools/scripts/merge.sh')).mode & 0o111).toBeTruthy();
     // Copying a skill never ran its script.
     expect(fs.existsSync(path.join(home, 'merged.txt'))).toBe(false);
     // Without a computer the skill's files go nowhere.
