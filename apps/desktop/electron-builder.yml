@@ -18,7 +18,18 @@ asar: true
 artifactName: stellarcortex-advence-${version}-${os}-${arch}.${ext}
 extraMetadata:
   name: stellarcortex-advence
-afterPack: build/afterPack.cjs
+# Electron fuses (NFR-SEC-07). electron-builder flips them right before signing, and for the
+# macOS universal app only once, on the merged app; flipping them per architecture in an
+# afterPack hook re-signed each half differently and broke the universal merge.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+  resetAdHocDarwinSignature: true
 publish:
   - provider: generic
     # Replaced at release time with the owner's self-hosted feed (D-24).

@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      # Build first, so the installer result shows even when a unit test fails on this OS.
       - run: pnpm --filter @advence/desktop dist
       - uses: actions/upload-artifact@v4
         with:
@@ -32,6 +32,7 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
           retention-days: 7
+      - run: pnpm test
 
   # FR-CLI-06: the one-line server installer on a fresh runner of each OS, then a signed update
   # through the installed service. Hosted macOS and Windows runners have no nested

@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { releasePublicKey, signRelease } from '@advence/protocol';
-import { isLoopback, Updater } from './update/updater.js';
+import { download, isLoopback, Updater } from './update/updater.js';
 import type { BuildInfo } from './build-info.js';
 import { startTestServer, ownerClient, pairedClient, type TestEnv } from './test-utils/harness.js';
 // @ts-expect-error plain JavaScript module without types
@@ -172,6 +172,33 @@ describe('FR-CLI-05 / NFR-SEC-10: every update is signature-checked before it is
     }) as unknown as typeof fetch;
     const u = new Updater({ build: { ...build(), feedUrl: 'https://github.com/o/r/releases/latest/download' }, dataDir: tmp('data'), installRoot: null, underLauncher: false, fetch: downgraded });
     expect((await u.check()).error).toBe('feed_not_https');
+  });
+
+  it('downloads the bundle without fetch: a server that closes mid-backpressure is read in full, http redirects are refused', async () => {
+    const body = randomBytes(8 * 1024 * 1024);
+    const srv = http.createServer((req, res) => {
+      if (req.url === '/away') {
+        res.writeHead(302, { location: 'http://files.example.com/bundle.tar.gz' });
+        return res.end();
+      }
+      // HTTP/1.0 style: the whole body, then the connection closes (as python's http.server does).
+      res.writeHead(200, { 'content-length': body.length, connection: 'close' });
+      res.end(body);
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+    try {
+      const res = await download(`${base}/bundle.tar.gz`, AbortSignal.timeout(30_000));
+      const hash = createHash('sha256');
+      for await (const c of res) {
+        hash.update(c as Buffer);
+        await new Promise((r) => setTimeout(r, 2)); // a slow reader keeps the stream paused
+      }
+      expect(hash.digest('hex')).toBe(createHash('sha256').update(body).digest('hex'));
+      await expect(download(`${base}/away`, AbortSignal.timeout(5_000))).rejects.toMatchObject({ code: 'feed_not_https' });
+    } finally {
+      srv.close();
+    }
   });
 
   it('stages a verified release: extracted next to the running version and marked pending', async () => {

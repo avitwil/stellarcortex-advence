@@ -63,7 +63,10 @@ wait_version 0.9.1
 echo "== the installer refuses an older signed release"
 publish 0.9.0
 if curl -fsSL "$FEED/install.sh" | sh; then echo "downgrade was installed"; exit 1; fi
-ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/advence-server"
+case "$(uname -s)" in
+  Darwin) ROOT="$HOME/Library/Application Support/Advence/server" ;;
+  *) ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/advence-server" ;;
+esac
 [ "$(cat "$ROOT/current")" = 0.9.1 ]
 
 echo "== running the installer again upgrades"

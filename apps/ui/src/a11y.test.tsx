@@ -97,6 +97,7 @@ describe.each(['en', 'he'] as const)('NFR-A11Y-01 axe audit has no criticals (%s
     expect(found).toEqual([]);
   });
 
+  // axe over every main screen and every Settings section takes 3 to 5 s on a hosted runner.
   it('chat home, a conversation, Library, Activity, Routines and every Settings section', async () => {
     const found: string[] = [];
     render(<Shell />);
@@ -127,7 +128,7 @@ describe.each(['en', 'he'] as const)('NFR-A11Y-01 axe audit has no criticals (%s
       found.push(...(await audit(`settings ${s.textContent?.trim()}`)));
     }
     expect(found).toEqual([]);
-  });
+  }, 30_000);
 });
 
 describe('NFR-A11Y-01 keyboard and labels', () => {

@@ -4,12 +4,14 @@
 // It then writes `pending.json` and asks the launcher to restart; the launcher backs up the
 // database, starts the new version and rolls back when its health check fails.
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Readable, Transform } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { compareVersions, ReleaseError, verifyRelease, type ReleaseFile, type ReleaseManifest } from '@advence/protocol';
 import type { BuildInfo } from '../build-info.js';
@@ -68,6 +70,33 @@ function secureUrl(u: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * GET for the release bundle with node:http(s). fetch (undici) in Node.js 22 can throw an
+ * uncaught assertion and end the process when the server closes the connection while the body
+ * is paused by backpressure (a slow disk, a fast feed). Redirects are followed, at most five,
+ * and never to plain http (except on loopback).
+ */
+export function download(url: string, signal: AbortSignal, hops = 5): Promise<http.IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    if (!secureUrl(url)) return reject(new UpdateError('feed_not_https'));
+    const u = new URL(url);
+    const req = (u.protocol === 'https:' ? https : http).get(u, { signal }, (res) => {
+      const status = res.statusCode ?? 0;
+      if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
+        res.resume();
+        if (hops <= 0) return reject(new UpdateError('feed_unavailable', 'too many redirects'));
+        return resolve(download(new URL(res.headers.location, u).href, signal, hops - 1));
+      }
+      if (status < 200 || status > 299) {
+        res.resume();
+        return reject(new UpdateError('feed_unavailable', `${status} from the update feed`));
+      }
+      resolve(res);
+    });
+    req.on('error', reject);
+  });
 }
 
 export class Updater {
@@ -196,11 +225,10 @@ export class Updater {
       fs.mkdirSync(versions, { recursive: true });
       // A private folder per job, so a second apply (from a shell, say) cannot touch these files.
       const work = fs.mkdtempSync(path.join(versions, `.job-${m.version}-`));
-      const download = path.join(work, 'bundle.tar.gz');
+      const bundle = path.join(work, 'bundle.tar.gz');
       const staging = path.join(work, 'staging');
       try {
-        const res = await this.get(`${this.feed()}/${encodeURIComponent(f.name)}`, 15 * 60_000);
-        if (!res.body) throw new UpdateError('feed_unavailable');
+        const res = await download(`${this.feed()}/${encodeURIComponent(f.name)}`, AbortSignal.timeout(15 * 60_000));
         const hash = createHash('sha256');
         let size = 0;
         const meter = new Transform({
@@ -211,15 +239,15 @@ export class Updater {
             cb(null, chunk);
           },
         });
-        await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), meter, fs.createWriteStream(download, { mode: 0o600 }));
+        await pipeline(res, meter, fs.createWriteStream(bundle, { mode: 0o600 }));
         if (size !== f.size || hash.digest('hex') !== f.sha256) throw new ReleaseError('bad_hash');
         // Hash the file on disk once more: that is what tar reads.
         const again = createHash('sha256');
-        for await (const c of fs.createReadStream(download)) again.update(c as Buffer);
+        for await (const c of fs.createReadStream(bundle)) again.update(c as Buffer);
         if (again.digest('hex') !== f.sha256) throw new ReleaseError('bad_hash');
         fs.mkdirSync(staging);
         // tar ships with Linux, macOS and Windows 10+; the archive is already verified.
-        await run('tar', ['-xzf', download, '-C', staging], { timeout: 10 * 60_000 });
+        await run('tar', ['-xzf', bundle, '-C', staging], { timeout: 10 * 60_000 });
         const info = JSON.parse(fs.readFileSync(path.join(staging, 'build-info.json'), 'utf8')) as { version?: string };
         if (info.version !== m.version || !fs.existsSync(path.join(staging, 'server', 'dist', 'main.js'))) throw new UpdateError('bad_bundle');
         const target = path.join(versions, m.version);
