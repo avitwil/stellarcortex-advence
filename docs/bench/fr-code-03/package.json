@@ -1,0 +1,8 @@
+{
+  "name": "fr-code-03-bench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FR-CODE-03 benchmark: three seeded bugs for a Bot's coding engine to find and fix.",
+  "scripts": { "test": "node --test" },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,53 @@
+# Desktop installers (FR-CLI-01, D-04, D-06). No paid signing: Windows unsigned,
+# macOS ad-hoc signed (not notarized), Linux unsigned. Release artifacts are additionally
+# signed with our Ed25519 release key by scripts/release (P7).
+appId: com.stellarcortex.advence
+productName: StellarCortex Advence
+copyright: Copyright (c) 2026 avitwil. All rights reserved.
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist-electron/**
+  - package.json
+extraResources:
+  - from: ../ui/dist
+    to: ui
+asar: true
+# Plain file names: release manifests list files by name (D-24).
+artifactName: stellarcortex-advence-${version}-${os}-${arch}.${ext}
+extraMetadata:
+  name: stellarcortex-advence
+afterPack: build/afterPack.cjs
+publish:
+  - provider: generic
+    # Replaced at release time with the owner's self-hosted feed (D-24).
+    url: https://updates.stellarcortex.invalid
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - target: dmg
+      arch: [universal]
+  category: public.app-category.productivity
+  identity: '-'
+  hardenedRuntime: false
+  icon: build/icon.png
+linux:
+  executableName: stellarcortex-advence
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Office
+  icon: build/icon.png
+  maintainer: avitwil

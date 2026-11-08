@@ -1,0 +1,18 @@
+{
+  "name": "@advence/android",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "pnpm --filter @advence/ui build && cap sync android",
+    "typecheck": "echo no-ts",
+    "apk": "pnpm build && cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0"
+  }
+}

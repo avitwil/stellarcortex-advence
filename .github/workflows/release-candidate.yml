@@ -1,0 +1,225 @@
+# Release candidate (P7, D-24, NFR-SEC-10). Run by hand only. Builds every installer and bundle,
+# writes the release manifests, signs them when the release key is set as a secret, verifies
+# them against the pinned public key, and keeps the result as a private workflow artifact.
+# Nothing is published or tagged here. A signed candidate becomes a draft GitHub release; it goes
+# live only when the owner publishes it (C-07, docs/release.md).
+#
+# Repository variables (public values): ADVENCE_RELEASE_PUBKEY, ADVENCE_ANDROID_SHA1, and
+# optionally ADVENCE_FEED_URL (default: this repository's GitHub releases).
+# Secrets (optional): ADVENCE_RELEASE_KEY (the release key, never printed; a secret of the
+# `release` environment, not of the repository),
+# ADVENCE_ANDROID_KEYSTORE_B64 and its passwords. Without the release key the candidate is
+# built unsigned and marked so.
+name: release-candidate
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (x.y.z or x.y.z-rc.n)'
+        required: true
+      version_code:
+        description: 'Android versionCode (a whole number larger than the last one)'
+        required: true
+      notes:
+        description: 'Release notes'
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: release-candidate
+  cancel-in-progress: false
+env:
+  ADVENCE_RELEASE_PUBKEY: ${{ vars.ADVENCE_RELEASE_PUBKEY }}
+  # Default: this repository's GitHub releases (DL-086).
+  ADVENCE_FEED_URL: ${{ vars.ADVENCE_FEED_URL || format('https://github.com/{0}/releases/latest/download', github.repository) }}
+  ADVENCE_ANDROID_SHA1: ${{ vars.ADVENCE_ANDROID_SHA1 }}
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  check-inputs:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Version, feed and pinned key are set
+        env:
+          VC: ${{ inputs.version_code }}
+        run: |
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "bad version"; exit 1; }
+          echo "$VC" | grep -Eq '^[1-9][0-9]*$' || { echo "bad version code"; exit 1; }
+          case "$ADVENCE_FEED_URL" in https://*) ;; *) echo "set the ADVENCE_FEED_URL repository variable to an https URL"; exit 1;; esac
+          [ -n "$ADVENCE_RELEASE_PUBKEY" ] || { echo "set the ADVENCE_RELEASE_PUBKEY repository variable (docs/release.md)"; exit 1; }
+
+  server:
+    needs: check-inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-15 is Apple silicon, macos-15-intel is Intel (D-11). Linux arm64 runners are not
+        # free for private repositories; build that bundle on an arm64 machine (DL-073).
+        os: [ubuntu-24.04, macos-15, macos-15-intel, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Server bundle (FR-CLI-06)
+        shell: bash
+        run: node scripts/release/bundle-server.mjs --version "$VERSION" --out out/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.os }}
+          path: out/server/*.tar.gz
+          retention-days: 30
+
+  desktop:
+    needs: check-inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Desktop installers (FR-CLI-01)
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          pnpm build
+          pnpm exec electron-builder --publish never -c.extraMetadata.version="$VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+          retention-days: 30
+
+  android:
+    needs: check-inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @advence/android build
+      - name: Release APKs (FR-CLI-02)
+        working-directory: apps/android/android
+        env:
+          ADVENCE_VERSION: ${{ inputs.version }}
+          ADVENCE_VERSION_CODE: ${{ inputs.version_code }}
+          KEYSTORE_B64: ${{ secrets.ADVENCE_ANDROID_KEYSTORE_B64 }}
+          ADVENCE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ADVENCE_ANDROID_KEYSTORE_PASSWORD }}
+          ADVENCE_ANDROID_KEY_ALIAS: ${{ secrets.ADVENCE_ANDROID_KEY_ALIAS }}
+          ADVENCE_ANDROID_KEY_PASSWORD: ${{ secrets.ADVENCE_ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export ADVENCE_ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
+          fi
+          ./gradlew --no-daemon assembleRelease
+          mkdir -p "$GITHUB_WORKSPACE/out/android"
+          for f in app/build/outputs/apk/release/*.apk; do
+            abi=$(basename "$f" .apk | sed -E 's/^app-//; s/-release(-unsigned)?$//')
+            cp "$f" "$GITHUB_WORKSPACE/out/android/stellarcortex-advence-$VERSION-$abi.apk"
+          done
+          rm -f "$RUNNER_TEMP/release.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/android/*.apk
+          retention-days: 30
+
+  assemble:
+    needs: [server, desktop, android]
+    runs-on: ubuntu-24.04
+    # The release key, when kept in GitHub at all, is a secret of this environment only, which
+    # needs the owner's approval and runs only from allowed branches (docs/release.md).
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: write   # only to create the draft release below
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Feed folder and manifests (D-24)
+        env:
+          NOTES: ${{ inputs.notes }}
+          VC: ${{ inputs.version_code }}
+        run: |
+          # Each component's manifest lists that component's files; the feed itself is one flat
+          # folder, the layout of a GitHub release (DL-086).
+          mkdir -p stage/server stage/desktop stage/android feed
+          cp dl/server-*/*.tar.gz stage/server/
+          cp dl/desktop-*/* stage/desktop/
+          cp dl/android/*.apk stage/android/
+          printf '%s' "$NOTES" > notes.txt
+          node scripts/release/manifest.mjs --component server --version "$VERSION" --dir stage/server --out stage/server/server-manifest.json --notes notes.txt
+          node scripts/release/manifest.mjs --component desktop --version "$VERSION" --dir stage/desktop --out stage/desktop/desktop-manifest.json --notes notes.txt
+          node scripts/release/manifest.mjs --component android --version "$VERSION" --version-code "$VC" --dir stage/android --out stage/android/android-manifest.json --notes notes.txt
+          cp stage/server/* stage/desktop/* stage/android/* feed/
+          node scripts/release/render-installers.mjs --feed "$ADVENCE_FEED_URL" --keys "$ADVENCE_RELEASE_PUBKEY" --out feed
+      - name: Sign with the release key (NFR-SEC-10)
+        env:
+          ADVENCE_RELEASE_KEY: ${{ secrets.ADVENCE_RELEASE_KEY }}
+        run: |
+          if [ -z "$ADVENCE_RELEASE_KEY" ]; then
+            echo "No ADVENCE_RELEASE_KEY secret: this candidate is unsigned. Sign it on your own machine (docs/release.md)." | tee feed/UNSIGNED.txt
+            exit 0
+          fi
+          for c in server desktop android; do
+            node scripts/release/sign.mjs --expect "$ADVENCE_RELEASE_PUBKEY" "feed/$c-manifest.json"
+          done
+      - name: Verify every manifest and file against the pinned key
+        run: |
+          [ -f feed/UNSIGNED.txt ] && exit 0
+          for c in server desktop android; do
+            node scripts/release/verify.mjs --pub "$ADVENCE_RELEASE_PUBKEY" "feed/$c-manifest.json" --dir feed
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feed-${{ inputs.version }}
+          path: feed
+          retention-days: 30
+      - name: Draft GitHub release (not published)
+        # A draft is visible only to people with write access. Publishing it is the owner's
+        # approval (C-07); installs then pick it up from releases/latest/download.
+        if: hashFiles('feed/UNSIGNED.txt') == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          PRE=""
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          printf '%s' "$NOTES" > notes.txt
+          gh release create "v$VERSION" feed/* --repo "$GITHUB_REPOSITORY" --draft $PRE --target "$GITHUB_SHA" --title "StellarCortex Advence $VERSION" --notes-file notes.txt

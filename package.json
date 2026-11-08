@@ -1,0 +1,33 @@
+{
+  "name": "stellarcortex-advence",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter ./packages/** run build && pnpm -r --filter ./apps/** run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "vitest run --project protocol --project server --project ui --project desktop",
+    "test:watch": "vitest",
+    "check:brand": "node scripts/check-brand.mjs",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "check": "pnpm typecheck && pnpm check:brand && pnpm check:licenses && pnpm check:cost && pnpm test",
+    "test:e2e": "pnpm --filter @advence/desktop build && vitest run --project e2e",
+    "check:cost": "node scripts/check-cost.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "playwright": "1.63.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7",
+    "yaml": "2.9.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/node": "^22.19.0"
+    }
+  }
+}
