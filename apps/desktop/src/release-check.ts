@@ -26,3 +26,31 @@ export function installerFor(files: ReleaseFile[], platform: NodeJS.Platform): R
   const ext = platform === 'darwin' ? '.dmg' : platform === 'win32' ? '.exe' : '.AppImage';
   return files.find((f) => f.name.endsWith(ext));
 }
+
+/** Reads at most `max` bytes, within `ms`; a longer or slower answer is dropped. */
+export async function fetchLimited(fetcher: typeof fetch, url: string, max: number, ms = 30_000): Promise<Uint8Array> {
+  const res = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(ms) });
+  if (!res.ok) throw new Error(`${res.status} from the update feed`);
+  if (Number(res.headers.get('content-length') ?? 0) > max) throw new Error('update feed response too large');
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) {
+      await reader.cancel();
+      throw new Error('update feed response too large');
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}

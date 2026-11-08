@@ -7,7 +7,9 @@
 #   - a service that starts at boot (systemd user unit with lingering, or a launchd agent)
 #   - the `advence` command in ~/.local/bin
 # then sets up Podman and the Bot computer image (`advence computer setup`) and shows the
-# pairing QR code for your first device. Running it again upgrades in place.
+# pairing QR code for your first device. Running it again repairs or upgrades: an upgrade of a
+# running install goes through the launcher (database backup, health check, rollback), and an
+# older release is refused unless ADVENCE_ALLOW_DOWNGRADE=1.
 # Environment: ADVENCE_SKIP_COMPUTER=1 skips Podman, ADVENCE_SKIP_SERVICE=1 skips the service,
 # ADVENCE_SKIP_PAIR=1 skips pairing; ADVENCE_PORT sets the port.
 set -eu
@@ -42,7 +44,10 @@ esac
 BIN="$HOME/.local/bin"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-fetch() { curl -fsSL --proto '=https,http' --retry 3 -o "$2" "$1"; }
+# Plain http (and a redirect to it) only for a loopback mirror.
+PROTO='=https'
+case "$FEED" in http://*) PROTO='=https,http' ;; esac
+fetch() { curl -fsSL --proto "$PROTO" --proto-redir "$PROTO" --retry 3 -o "$2" "$1"; }
 
 say "StellarCortex Advence: installing into $ROOT"
 mkdir -p "$ROOT/versions" "$BIN"
@@ -55,8 +60,10 @@ fetch "$FEED/server/manifest.json.sig" "$TMP/manifest.json.sig"
 NODE_VERSION=$(sed -n 's/.*"runtime": *"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' "$TMP/manifest.json" | head -n 1)
 [ -n "$NODE_VERSION" ] || die "the release manifest names no Node.js runtime"
 
-# 2. Node.js runtime.
+# 2. Node.js runtime. A new one is unpacked into the temporary folder and used for the checks
+#    below; it replaces the installed one only once the release is verified.
 NODE_DIR="$ROOT/node"
+NEW_NODE=""
 if [ ! -x "$NODE_DIR/bin/node" ] || [ "$("$NODE_DIR/bin/node" -v)" != "$NODE_VERSION" ]; then
   NAME="node-$NODE_VERSION-$OS-$ARCH"
   EXT=tar.gz
@@ -66,19 +73,19 @@ if [ ! -x "$NODE_DIR/bin/node" ] || [ "$("$NODE_DIR/bin/node" -v)" != "$NODE_VER
   WANT=$(awk -v f="$NAME.$EXT" '$2 == f { print $1 }' "$TMP/SHASUMS256.txt")
   if command -v sha256sum >/dev/null; then GOT=$(sha256sum "$TMP/$NAME.$EXT" | awk '{print $1}'); else GOT=$(shasum -a 256 "$TMP/$NAME.$EXT" | awk '{print $1}'); fi
   [ -n "$WANT" ] && [ "$WANT" = "$GOT" ] || die "Node.js download does not match nodejs.org's checksum"
-  rm -rf "$NODE_DIR.new"
-  mkdir -p "$NODE_DIR.new"
-  tar -xzf "$TMP/$NAME.$EXT" -C "$NODE_DIR.new" --strip-components 1
-  rm -rf "$NODE_DIR"
-  mv "$NODE_DIR.new" "$NODE_DIR"
+  NEW_NODE="$TMP/node"
+  mkdir -p "$NEW_NODE"
+  tar -xzf "$TMP/$NAME.$EXT" -C "$NEW_NODE" --strip-components 1
+  NODE="$NEW_NODE/bin/node"
+else
+  NODE="$NODE_DIR/bin/node"
 fi
-NODE="$NODE_DIR/bin/node"
 
 # 3. Verify the manifest signature against the pinned key, pick this machine's bundle, download
 #    it and check its SHA-256 and size. Same format as packages/protocol/src/release.ts.
 cat > "$TMP/verify.cjs" <<'EOF'
 const fs = require('node:fs'), crypto = require('node:crypto');
-const [, , dir, keys, platform, arch, feed] = process.argv;
+const [, , dir, keys, platform, arch, feed, mode, installed] = process.argv;
 const manifest = fs.readFileSync(`${dir}/manifest.json`);
 const sig = Buffer.from(fs.readFileSync(`${dir}/manifest.json.sig`, 'utf8').trim(), 'base64url');
 const msg = Buffer.concat([Buffer.from('stellarcortex-advence release v1\n'), manifest]);
@@ -89,16 +96,40 @@ const m = JSON.parse(manifest);
 if (m.product !== 'stellarcortex-advence' || m.component !== 'server') { console.error('not a server release'); process.exit(3); }
 const f = m.files.find((x) => x.platform === platform && x.arch === arch);
 if (!f || !/^[A-Za-z0-9._-]+$/.test(f.name)) { console.error(`no ${platform}-${arch} bundle in ${m.version}`); process.exit(3); }
-if (process.argv[7] === 'check') {
+if (m.runtime !== process.version) { console.error(`the release needs Node.js ${m.runtime}`); process.exit(3); }
+// Semver order, as in packages/protocol/src/release.ts.
+const cmp = (a, b) => {
+  const parse = (v) => { const i = v.indexOf('-'); return { n: (i < 0 ? v : v.slice(0, i)).split('.').map((x) => Number(x) || 0), pre: i < 0 ? null : v.slice(i + 1).split('.') }; };
+  const x = parse(a), y = parse(b);
+  for (let i = 0; i < 3; i++) if (x.n[i] !== y.n[i]) return x.n[i] - y.n[i];
+  if (!x.pre || !y.pre) return x.pre === y.pre ? 0 : x.pre ? -1 : 1;
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i], q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p), qn = /^\d+$/.test(q);
+    if (pn && qn) return Number(p) - Number(q);
+    if (pn !== qn) return pn ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
+  return 0;
+};
+if (installed && cmp(m.version, installed) < 0 && process.env.ADVENCE_ALLOW_DOWNGRADE !== '1') {
+  console.error(`release ${m.version} is older than the installed ${installed}; set ADVENCE_ALLOW_DOWNGRADE=1 to install it anyway`);
+  process.exit(3);
+}
+if (mode === 'check') {
   const data = fs.readFileSync(`${dir}/bundle.tar.gz`);
   if (data.length !== f.size || crypto.createHash('sha256').update(data).digest('hex') !== f.sha256) { console.error('the server bundle does not match the signed manifest'); process.exit(3); }
   process.stdout.write(m.version);
 } else process.stdout.write(`${feed}/server/${encodeURIComponent(f.name)}`);
 EOF
-URL=$("$NODE" "$TMP/verify.cjs" "$TMP" "$RELEASE_KEYS" "$OS" "$ARCH" "$FEED") || die "verification failed; nothing was installed"
+INSTALLED=$(cat "$ROOT/current" 2>/dev/null || true)
+URL=$("$NODE" "$TMP/verify.cjs" "$TMP" "$RELEASE_KEYS" "$OS" "$ARCH" "$FEED" url "$INSTALLED") || die "verification failed; nothing was installed"
 say "Downloading the server bundle"
 fetch "$URL" "$TMP/bundle.tar.gz"
-VERSION=$("$NODE" "$TMP/verify.cjs" "$TMP" "$RELEASE_KEYS" "$OS" "$ARCH" "$FEED" check) || die "verification failed; nothing was installed"
+VERSION=$("$NODE" "$TMP/verify.cjs" "$TMP" "$RELEASE_KEYS" "$OS" "$ARCH" "$FEED" check "$INSTALLED") || die "verification failed; nothing was installed"
 say "Verified release $VERSION"
 
 # 4. Extract next to any version already installed.
@@ -112,11 +143,36 @@ stop_service() {
   if [ "$OS" = darwin ]; then launchctl bootout "gui/$(id -u)/com.stellarcortex.advence.server" 2>/dev/null || true; fi
 }
 [ "${ADVENCE_SKIP_SERVICE:-}" = 1 ] || stop_service
+if [ -n "$NEW_NODE" ]; then
+  rm -rf "$NODE_DIR.old"
+  [ -d "$NODE_DIR" ] && mv "$NODE_DIR" "$NODE_DIR.old"
+  mv "$NEW_NODE" "$NODE_DIR"
+  rm -rf "$NODE_DIR.old"
+fi
+NODE="$NODE_DIR/bin/node"
 rm -rf "$ROOT/versions/$VERSION"
 mv "$ROOT/versions/.staging" "$ROOT/versions/$VERSION"
-printf '%s\n' "$VERSION" > "$ROOT/current.tmp" && mv "$ROOT/current.tmp" "$ROOT/current"
-cp "$ROOT/versions/$VERSION/launcher.mjs" "$ROOT/launcher.mjs"
-rm -f "$ROOT/pending.json"
+case "$OS" in
+  darwin) DATA="${ADVENCE_DATA_DIR:-$HOME/Library/Application Support/Advence/data}" ;;
+  *) DATA="${ADVENCE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/advence}" ;;
+esac
+TRIAL=""
+if [ -n "$INSTALLED" ] && [ "$INSTALLED" != "$VERSION" ] && [ -z "$NEW_NODE" ] && [ -f "$DATA/state.db" ] && [ "${ADVENCE_SKIP_SERVICE:-}" != 1 ]; then
+  # An upgrade of a working install: the launcher backs up the database, tries the new version
+  # and goes back to the installed one when its health check fails.
+  TRIAL=1
+  printf '{"version":"%s","db":"%s","at":"%s"}\n' "$VERSION" "$DATA/state.db" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ROOT/pending.json.tmp"
+  mv "$ROOT/pending.json.tmp" "$ROOT/pending.json"
+else
+  # A first install, or a new Node.js (the previous version cannot run on it): switch directly,
+  # keeping a copy of the database from before the switch.
+  if [ -n "$INSTALLED" ] && [ -f "$DATA/state.db" ]; then
+    for p in "" -wal -shm; do [ -f "$DATA/state.db$p" ] && cp "$DATA/state.db$p" "$DATA/state.db.pre-$VERSION$p"; done
+  fi
+  printf '%s\n' "$VERSION" > "$ROOT/current.tmp" && mv "$ROOT/current.tmp" "$ROOT/current"
+  cp "$ROOT/versions/$VERSION/launcher.mjs" "$ROOT/launcher.mjs"
+  rm -f "$ROOT/pending.json"
+fi
 
 # 5. The `advence` command.
 cat > "$BIN/advence" <<EOF
@@ -178,6 +234,16 @@ EOF
     [ $i -gt 60 ] && die "the server did not start; see the service log"
     sleep 1
   done
+  if [ -n "$TRIAL" ]; then
+    i=0
+    while [ -f "$ROOT/pending.json" ]; do
+      i=$((i + 1))
+      [ $i -gt 180 ] && die "the new version is still on trial; see the service log"
+      sleep 1
+    done
+    NOW=$(cat "$ROOT/current")
+    [ "$NOW" = "$VERSION" ] || die "release $VERSION failed its health check; version $NOW is running again"
+  fi
   say "Server $VERSION is running."
 fi
 

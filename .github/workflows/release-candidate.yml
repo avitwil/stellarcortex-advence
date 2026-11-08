@@ -5,7 +5,8 @@
 # folder to their own server (C-07, docs/release.md).
 #
 # Repository variables (public values): ADVENCE_RELEASE_PUBKEY, ADVENCE_FEED_URL, ADVENCE_ANDROID_SHA1.
-# Secrets (optional): ADVENCE_RELEASE_KEY (the release key, never printed),
+# Secrets (optional): ADVENCE_RELEASE_KEY (the release key, never printed; a secret of the
+# `release` environment, not of the repository),
 # ADVENCE_ANDROID_KEYSTORE_B64 and its passwords. Without the release key the candidate is
 # built unsigned and marked so.
 name: release-candidate
@@ -154,6 +155,9 @@ jobs:
   assemble:
     needs: [server, desktop, android]
     runs-on: ubuntu-24.04
+    # The release key, when kept in GitHub at all, is a secret of this environment only, which
+    # needs the owner's approval and runs only from allowed branches (docs/release.md).
+    environment: release
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5

@@ -53,5 +53,9 @@ describe('NFR-SEC-10 release signature verify step', () => {
     expect(compareVersions('1.0.0-rc.1', '1.0.0')).toBeLessThan(0);
     expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
     expect(compareVersions('2.0.0', '1.9.9')).toBeGreaterThan(0);
+    expect(compareVersions('1.0.0-rc.10', '1.0.0-rc.9')).toBeGreaterThan(0);
+    expect(compareVersions('1.0.0-alpha', '1.0.0-alpha.1')).toBeLessThan(0);
+    expect(compareVersions('1.0.0-alpha.1', '1.0.0-alpha.beta')).toBeLessThan(0);
+    expect(compareVersions('1.0.0-beta.2', '1.0.0-alpha.9')).toBeGreaterThan(0);
   });
 });

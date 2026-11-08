@@ -4,6 +4,7 @@
 // It then writes `pending.json` and asks the launcher to restart; the launcher backs up the
 // database, starts the new version and rolls back when its health check fails.
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -52,7 +53,13 @@ export class UpdateError extends Error {
   }
 }
 
-const isLoopback = (h: string) => h === 'localhost' || h === '[::1]' || /^127\./.test(h);
+/** A literal loopback address or `localhost`; a DNS name that only starts with 127 is not one. */
+export function isLoopback(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '');
+  if (h === 'localhost') return true;
+  if (net.isIP(h) === 4) return h.startsWith('127.');
+  return net.isIP(h) === 6 && h === '::1';
+}
 
 export class Updater {
   private checkedAt: number | null = null;
@@ -111,12 +118,24 @@ export class Updater {
     return res;
   }
 
+  /** Reads at most `max` bytes; a longer answer (with or without a length header) is dropped. */
   private async bytes(res: Response, max: number): Promise<Uint8Array> {
-    const len = Number(res.headers.get('content-length') ?? 0);
-    if (len > max) throw new UpdateError('too_large');
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.length > max) throw new UpdateError('too_large');
-    return buf;
+    if (Number(res.headers.get('content-length') ?? 0) > max) throw new UpdateError('too_large');
+    const reader = res.body?.getReader();
+    if (!reader) return new Uint8Array();
+    const out = new Uint8Array(max);
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (size + value.length > max) {
+        await reader.cancel();
+        throw new UpdateError('too_large');
+      }
+      out.set(value, size);
+      size += value.length;
+    }
+    return out.slice(0, size);
   }
 
   /** Fetches and verifies the server manifest; nothing is trusted before the signature checks out. */
@@ -163,9 +182,10 @@ export class Updater {
       const f = this.fileFor(m);
       const versions = path.join(root, 'versions');
       fs.mkdirSync(versions, { recursive: true });
-      const download = path.join(versions, `.download-${m.version}`);
-      const staging = path.join(versions, `.staging-${m.version}`);
-      fs.rmSync(staging, { recursive: true, force: true });
+      // A private folder per job, so a second apply (from a shell, say) cannot touch these files.
+      const work = fs.mkdtempSync(path.join(versions, `.job-${m.version}-`));
+      const download = path.join(work, 'bundle.tar.gz');
+      const staging = path.join(work, 'staging');
       try {
         const res = await this.get(`${this.feed()}/server/${encodeURIComponent(f.name)}`, 15 * 60_000);
         if (!res.body) throw new UpdateError('feed_unavailable');
@@ -181,7 +201,11 @@ export class Updater {
         });
         await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), meter, fs.createWriteStream(download, { mode: 0o600 }));
         if (size !== f.size || hash.digest('hex') !== f.sha256) throw new ReleaseError('bad_hash');
-        fs.mkdirSync(staging, { recursive: true });
+        // Hash the file on disk once more: that is what tar reads.
+        const again = createHash('sha256');
+        for await (const c of fs.createReadStream(download)) again.update(c as Buffer);
+        if (again.digest('hex') !== f.sha256) throw new ReleaseError('bad_hash');
+        fs.mkdirSync(staging);
         // tar ships with Linux, macOS and Windows 10+; the archive is already verified.
         await run('tar', ['-xzf', download, '-C', staging], { timeout: 10 * 60_000 });
         const info = JSON.parse(fs.readFileSync(path.join(staging, 'build-info.json'), 'utf8')) as { version?: string };
@@ -196,8 +220,7 @@ export class Updater {
         this.o.log?.('update staged', { version: m.version });
         return m.version;
       } finally {
-        fs.rmSync(download, { force: true });
-        fs.rmSync(staging, { recursive: true, force: true });
+        fs.rmSync(work, { recursive: true, force: true });
       }
     })();
     this.busy = job;

@@ -49,7 +49,9 @@ The installer:
    pacman, Homebrew or winget), sets up rootless mode and builds the Bot computer image locally;
 6. shows a QR code to pair your first device.
 
-Run it again to repair or upgrade. Options: `ADVENCE_PORT=5443` for another port,
+Run it again to repair or upgrade. An upgrade of a running server goes through the same health
+check and rollback as an update from the app; an older release is refused unless you set
+`ADVENCE_ALLOW_DOWNGRADE=1`. Options: `ADVENCE_PORT=5443` for another port,
 `ADVENCE_SKIP_COMPUTER=1` to set up Podman later, `ADVENCE_SKIP_PAIR=1`.
 
 Windows asks whether Node.js may accept connections the first time; allow private networks so

@@ -202,6 +202,55 @@ arrives in the other mailbox, with no approval prompt.
 On Android, start a long routine run (for example a coding task) and press "Pause all" in the
 sidebar. Pass: within 2 s the run shows "Stopped" on the phone and on the desktop.
 
+## P7
+
+### MC-P7-INSTALL-UBUNTU: fresh server install on Ubuntu 24.04 with Bot computers (FR-CLI-06)
+CI runs the installer on Ubuntu with Podman (`installers` workflow). Also check it by hand on a
+real machine with a desktop session: run the one-line installer from your feed as a normal user.
+Pass: the installer verifies and installs, `systemctl --user status advence` is active after a
+reboot, the QR code pairs a device, and a new Bot's computer opens in the app.
+
+### MC-P7-INSTALL-WIN: fresh server install on Windows 11 (FR-CLI-06)
+On a clean Windows 11 machine, run the PowerShell one-liner as your normal user. Pass: Node.js,
+Podman (with its machine) and the image are installed, the scheduled task **StellarCortex Advence
+server** starts the server after signing out and in, a device pairs, and a Bot computer opens.
+
+### MC-P7-INSTALL-MAC: fresh server install on macOS 14 or newer (FR-CLI-06)
+On a clean Mac (Apple silicon and, if available, Intel), run the curl one-liner. Pass: Podman is
+installed from Homebrew and its machine starts, the launchd agent runs the server after a
+reboot, a device pairs, and a Bot computer opens.
+
+### MC-P7-DESKTOP: desktop installers launch and update on each OS (FR-CLI-01, FR-CLI-05)
+Install the `.exe` on Windows, the `.dmg` on macOS, and the `.AppImage` and `.deb` on Ubuntu, from
+a signed release candidate. Then publish a newer signed candidate to the feed. Pass: each app
+launches and pairs; Windows and Linux download the update and install it on quit; macOS opens the
+verified DMG; a candidate whose installer was changed after signing is refused with a message.
+
+### MC-P7-ANDROID: install and update the APK (FR-CLI-02, FR-CLI-05)
+On a real Android 9+ phone (arm64) and an x86_64 emulator, install the APK from the feed and pair.
+Publish a newer signed candidate with a larger version code. Pass: **Settings → Updates** offers
+it, **Download and install** opens the system installer and the app updates; an APK changed after
+signing is refused before the installer opens.
+
+### MC-P7-PERF-10BOTS: ten Bots with running computers on 32 GB / 8 cores (NFR-PERF-02)
+The automated test covers ten Bots chatting at once with fake computers. On a real 32 GB / 8-core
+host, create ten Bots, open each Bot's computer, and give all of them a browsing task at the same
+time. Pass: every computer stays usable (noVNC responds), every reply arrives, and the server
+stays under the host's memory.
+
+### MC-P7-A11Y: contrast and screen reader (NFR-A11Y-01)
+axe runs in tests on every main screen but cannot measure contrast there. In the desktop app, in
+light and dark themes and in Hebrew and English, run the axe browser extension (or Lighthouse) on
+the main screens, and use NVDA (Windows) or VoiceOver (macOS) and TalkBack (Android) to send a
+message, open Settings and approve an action card. Pass: no critical axe results, and every step
+can be done with the keyboard and the screen reader.
+
+### MC-P7-RC: signed release candidate (NFR-SEC-10, D-24)
+Create the release key on your own computer (`docs/release.md`, step 1), set the repository
+variables, and run **Actions → release-candidate**. Pass: every job is green, the `feed-<version>`
+artifact verifies with `scripts/release/verify.mjs` against your public key, and the workflow log
+shows no key material. Publishing stays your step (C-07).
+
 ## Results
 | Check | Date | Result | Notes |
 |---|---|---|---|

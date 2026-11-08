@@ -7,6 +7,7 @@
 // Install folder:
 //   current             the version that runs (one line)
 //   pending.json        a staged update: { version, db }
+//   trial.json          a new version is on trial (written after the database backup)
 //   update-failed.json  the last update that rolled back
 //   versions/<v>/       one extracted release bundle per version
 //   launcher.mjs        this file (replaced after a successful update)
@@ -118,21 +119,36 @@ export async function launch(root, o = {}) {
       } else if (pending) {
         const from = readText(path.join(root, 'current'));
         const backup = `${pending.db}.pre-${pending.version}`;
+        const trialFile = path.join(root, 'trial.json');
         const fail = async (reason) => {
           if (child) await stop(child);
           child = null;
           copyDb(backup, pending.db);
           fs.rmSync(path.join(root, 'pending.json'), { force: true });
+          fs.rmSync(trialFile, { force: true });
           if (pending.version !== from) fs.rmSync(path.join(root, 'versions', pending.version), { recursive: true, force: true });
           writeAtomic(path.join(root, 'update-failed.json'), `${JSON.stringify({ version: pending.version, from, at: new Date().toISOString(), reason })}\n`);
           log(`update to ${pending.version} failed (${reason}); rolled back to ${from}`);
         };
-        if (!fs.existsSync(entryOf(root, pending.version))) {
+        let trial = null;
+        try {
+          trial = JSON.parse(readText(trialFile) ?? 'null');
+        } catch {
+          /* unreadable: treated as no trial */
+        }
+        if (trial && trial.version === pending.version && fs.existsSync(backup)) {
+          // The launcher stopped (power loss, kill) while this version was on trial. It may have
+          // changed the database already, so the backup from before the trial is restored and is
+          // never overwritten by a second backup.
+          await fail('interrupted during its health check');
+        } else if (!fs.existsSync(entryOf(root, pending.version))) {
           fs.rmSync(path.join(root, 'pending.json'), { force: true });
+          fs.rmSync(trialFile, { force: true });
           log(`staged version ${pending.version} is missing`);
         } else {
           // The previous server has exited, so the database is closed and safe to copy.
           copyDb(pending.db, backup);
+          writeAtomic(trialFile, `${JSON.stringify({ version: pending.version, at: new Date().toISOString() })}\n`);
           child = start(pending.version);
           const outcome = await new Promise((resolve) => {
             const timer = setTimeout(() => resolve({ ok: false, reason: 'no health signal' }), healthMs);
@@ -152,6 +168,7 @@ export async function launch(root, o = {}) {
             const next = path.join(root, 'versions', pending.version, 'launcher.mjs');
             if (fs.existsSync(next)) writeAtomic(path.join(root, 'launcher.mjs'), fs.readFileSync(next, 'utf8'));
             fs.rmSync(path.join(root, 'pending.json'), { force: true });
+            fs.rmSync(trialFile, { force: true });
             fs.rmSync(path.join(root, 'update-failed.json'), { force: true });
             pruneVersions(root, [pending.version, from]);
             log(`updated ${from} -> ${pending.version}`);

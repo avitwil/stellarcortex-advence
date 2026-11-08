@@ -22,9 +22,12 @@ refuses to write inside the repository or over an existing key.
   - add the **variable** `ADVENCE_RELEASE_PUBKEY` with the printed public key;
   - add the **variable** `ADVENCE_FEED_URL` with your feed address, for example
     `https://updates.example.org` (your VPS, https only);
-  - optionally add the **secret** `ADVENCE_RELEASE_KEY` with the file's content, so CI signs
-    candidates. Without it, CI builds unsigned candidates and you sign on your own computer
-    (step 3). Signing locally keeps the key off GitHub entirely.
+  - optionally let CI sign candidates. Under **Settings → Environments**, create the environment
+    `release`, add yourself as a **required reviewer**, limit **deployment branches** to the branch you release from (normally `main`),
+    and add the **environment secret** `ADVENCE_RELEASE_KEY` with the file's content. Do not add
+    it as a repository secret: any workflow on any branch could read that. Without it, CI builds
+    unsigned candidates and you sign on your own computer (step 3), which keeps the key off GitHub
+    entirely and is the safer choice.
 - For a signed APK, add the secrets `ADVENCE_ANDROID_KEYSTORE_B64` (the keystore, base64),
   `ADVENCE_ANDROID_KEYSTORE_PASSWORD`, `ADVENCE_ANDROID_KEY_ALIAS` and
   `ADVENCE_ANDROID_KEY_PASSWORD`. Keep the same keystore forever: Android only installs an update
@@ -48,7 +51,9 @@ In GitHub, **Actions → release-candidate → Run workflow**, with:
 It builds the server bundles (Linux x64, macOS Apple silicon and Intel, Windows x64), the
 desktop installers, the APKs, the manifests and the two installers, signs and verifies them when
 the secret exists, and keeps a `feed-<version>` artifact for 30 days. macOS and Windows runner
-minutes count more against the free quota (DL-020), so run it only for real candidates.
+minutes count more against the free quota (DL-020), so run it only for real candidates. When the `release`
+environment has you as a required reviewer, its last job (manifests and signing) waits for your
+approval.
 
 ## 3. Check and sign on your computer
 

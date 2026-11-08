@@ -99,14 +99,26 @@ export function fileMatches(f: ReleaseFile, data: Uint8Array): boolean {
 /** Compares x.y.z[-pre] versions; a pre-release sorts before its release. */
 export function compareVersions(a: string, b: string): number {
   const parse = (v: string) => {
-    const [main = '', pre] = v.split('-', 2);
-    return { n: main.split('.').map((x) => Number(x) || 0), pre: pre ?? null };
+    const dash = v.indexOf('-');
+    const main = dash < 0 ? v : v.slice(0, dash);
+    return { n: main.split('.').map((x) => Number(x) || 0), pre: dash < 0 ? null : v.slice(dash + 1).split('.') };
   };
   const x = parse(a);
   const y = parse(b);
   for (let i = 0; i < 3; i++) if ((x.n[i] ?? 0) !== (y.n[i] ?? 0)) return (x.n[i] ?? 0) - (y.n[i] ?? 0);
-  if (x.pre === y.pre) return 0;
-  if (x.pre === null) return 1;
-  if (y.pre === null) return -1;
-  return x.pre < y.pre ? -1 : 1;
+  if (x.pre === null || y.pre === null) return x.pre === y.pre ? 0 : x.pre === null ? 1 : -1;
+  // Semver: numeric identifiers compare as numbers and sort before text; fewer identifiers first.
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) return Number(p) - Number(q);
+    if (pn !== qn) return pn ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
+  return 0;
 }

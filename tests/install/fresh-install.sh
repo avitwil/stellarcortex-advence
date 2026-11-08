@@ -57,4 +57,17 @@ advence update check | tee "$WORK/check.txt"
 grep -q 'Update available: 0.9.1' "$WORK/check.txt"
 advence update apply
 wait_version 0.9.1
+
+echo "== the installer refuses an older signed release"
+publish 0.9.0
+if curl -fsSL "$FEED/install.sh" | sh; then echo "downgrade was installed"; exit 1; fi
+ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/advence-server"
+[ "$(cat "$ROOT/current")" = 0.9.1 ]
+
+echo "== running the installer again upgrades"
+publish 0.9.2
+curl -fsSL "$FEED/install.sh" | sh
+wait_version 0.9.2
+[ "$(cat "$ROOT/current")" = 0.9.2 ]
+[ ! -f "$ROOT/pending.json" ]
 echo "fresh install and update passed"

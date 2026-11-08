@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { randomBytes, createHash } from 'node:crypto';
 import { releasePublicKey, signRelease } from '@advence/protocol';
-import { checkDownloadedUpdate, installerFor } from './release-check';
+import { checkDownloadedUpdate, fetchLimited, installerFor } from './release-check';
 
 const seed = randomBytes(32);
 const key = releasePublicKey(seed);
@@ -44,5 +44,22 @@ describe('FR-CLI-05 desktop: downloaded update is checked against the signed man
     expect(installerFor(files, 'darwin')?.name).toMatch(/\.dmg$/);
     expect(installerFor(files, 'win32')?.name).toMatch(/\.exe$/);
     expect(installerFor(files, 'linux')?.name).toMatch(/\.AppImage$/);
+  });
+});
+
+describe('fetchLimited (FR-CLI-05)', () => {
+  const streaming = (chunks: number, size: number) => (async () => new Response(new ReadableStream({
+    start(c) {
+      for (let i = 0; i < chunks; i++) c.enqueue(new Uint8Array(size));
+      c.close();
+    },
+  }))) as unknown as typeof fetch;
+  it('stops reading a response without a length once it passes the limit', async () => {
+    await expect(fetchLimited(streaming(100, 1024), 'https://feed.test/x', 10 * 1024)).rejects.toThrow('too large');
+    expect((await fetchLimited(streaming(4, 1024), 'https://feed.test/x', 10 * 1024)).length).toBe(4096);
+  });
+  it('refuses a declared length over the limit', async () => {
+    const f = (async () => new Response('x', { headers: { 'content-length': '999999' } })) as unknown as typeof fetch;
+    await expect(fetchLimited(f, 'https://feed.test/x', 10)).rejects.toThrow('too large');
   });
 });

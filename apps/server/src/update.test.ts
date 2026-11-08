@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { releasePublicKey, signRelease } from '@advence/protocol';
-import { Updater } from './update/updater.js';
+import { isLoopback, Updater } from './update/updater.js';
 import type { BuildInfo } from './build-info.js';
 import { startTestServer, ownerClient, pairedClient, type TestEnv } from './test-utils/harness.js';
 // @ts-expect-error plain JavaScript module without types
@@ -150,6 +150,18 @@ describe('FR-CLI-05 / NFR-SEC-10: every update is signature-checked before it is
     expect((await u.check()).error).toBe('feed_not_https');
   });
 
+  it('treats only literal loopback addresses as loopback, and caps a manifest sent without a length', async () => {
+    for (const h of ['localhost', '127.0.0.1', '127.8.9.1', '[::1]']) expect(isLoopback(h)).toBe(true);
+    for (const h of ['127.evil.example', '127.0.0.1.nip.io', '10.0.0.1', '[::2]', 'example.com']) expect(isLoopback(h)).toBe(false);
+    const endless = (async () => new Response(new ReadableStream({
+      pull(c) {
+        c.enqueue(new Uint8Array(64 * 1024));
+      },
+    }))) as unknown as typeof fetch;
+    const u = new Updater({ build: build(), dataDir: tmp('data'), installRoot: null, underLauncher: false, fetch: endless });
+    expect((await u.check()).error).toBe('too_large');
+  });
+
   it('stages a verified release: extracted next to the running version and marked pending', async () => {
     const { root, db } = install();
     publish('1.1.0', bundle('1.1.0'));
@@ -206,6 +218,23 @@ describe('NFR-REL-02: updates are atomic with automatic rollback when the health
     expect(await done).toBe(0);
     expect(fs.readFileSync(path.join(root, 'runs.log'), 'utf8')).toBe('1.0.0\n1.1.0\n');
     expect(fs.readFileSync(path.join(root, 'current'), 'utf8').trim()).toBe('1.1.0');
+  });
+
+  it('a trial cut short (launcher killed) restores the backup from before the trial, never a second copy', async () => {
+    const { root, db } = install();
+    publish('1.1.0', bundle('1.1.0'));
+    await updater(root).stage();
+    // State left behind when the launcher died mid-trial: backup taken, marker written, and the
+    // new version already changed the database.
+    fs.copyFileSync(db, `${db}.pre-1.1.0`);
+    fs.writeFileSync(path.join(root, 'trial.json'), JSON.stringify({ version: '1.1.0' }));
+    fs.appendFileSync(db, 'schema 1.1.0\n');
+    expect(await launch(root, quiet)).toBe(0);
+    expect(fs.readFileSync(path.join(root, 'current'), 'utf8').trim()).toBe('1.0.0');
+    expect(fs.readFileSync(`${db}.pre-1.1.0`, 'utf8')).toBe('original\n');
+    expect(fs.readFileSync(db, 'utf8')).toBe('original\nschema 1.0.0\n');
+    expect(fs.existsSync(path.join(root, 'trial.json'))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'update-failed.json'), 'utf8')).reason).toMatch(/interrupted/);
   });
 
   it('ignores a pending file that names a version that is not there', async () => {
