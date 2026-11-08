@@ -52,7 +52,7 @@ export async function registerFeatures(app: FastifyInstance, ctx: AppContext, ws
   // P6: proactive Bots, routines and triggers (FR-PRO-01..08, NFR-SEC-11).
   proactive = new Proactivity(ctx, chat, { google: googleTools, hub, computers: computers.manager });
   registerProactiveRoutes(app, ctx, proactive);
-  proactive.start();
+  if (!ctx.testHooks?.manualTriggers) proactive.start();
   ws.onUpgrade(COMPUTER_WS_PATH, (req, socket, head) => computers.vnc.handleUpgrade(req, socket, head));
   app.addHook('onClose', async () => {
     await proactive?.close();

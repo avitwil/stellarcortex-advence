@@ -10,6 +10,8 @@ export interface Turn {
   tool?: { name: string; input: unknown };
   usage?: { input: number; output: number; cost?: number };
   status?: number;
+  /** wait this long (with the stream open) before answering */
+  delayMs?: number;
 }
 export interface SeenRequest { kind: 'openai' | 'anthropic'; body: any; headers: http.IncomingHttpHeaders }
 
@@ -83,6 +85,11 @@ export class MockModels {
       return;
     }
     res.setHeader('content-type', 'text/event-stream');
+    if (t.delayMs) {
+      res.flushHeaders();
+      await new Promise((r) => setTimeout(r, t.delayMs));
+      if (res.destroyed || req.destroyed) return;
+    }
     if (kind === 'openai') this.openai(res, t);
     else this.anthropic(res, t, seen.body.model);
   }
