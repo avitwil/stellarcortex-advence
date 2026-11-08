@@ -47,4 +47,12 @@ export interface PlatformBridge {
   /** Android: registers with the UnifiedPush distributor for this push server; returns the endpoint. */
   registerPush?(pushServer: string): Promise<string | null>;
   openExternal(url: string): void;
+  /** Android: this app's own signed updates (D-24); desktop updates itself natively. */
+  appUpdate?: {
+    version(): Promise<string>;
+    check(): Promise<import('../lib/app-update').AppUpdate | null>;
+    install(u: import('../lib/app-update').AppUpdate): Promise<void>;
+  };
+  /** Desktop: updates are checked and installed by the app itself. */
+  selfUpdating?: boolean;
 }

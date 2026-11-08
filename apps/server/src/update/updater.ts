@@ -151,7 +151,7 @@ export class Updater {
    */
   async stage(): Promise<string> {
     const root = this.o.installRoot;
-    if (!root) throw new UpdateError('not_installed');
+    if (!root) throw new UpdateError('not_service');
     if (this.busy) throw new UpdateError('busy');
     const job = (async () => {
       await this.check();
@@ -210,7 +210,7 @@ export class Updater {
 
   /** Stages the update and restarts into it (the launcher finishes the switch). */
   async apply(): Promise<string> {
-    if (!this.o.underLauncher || !this.o.installRoot) throw new UpdateError('not_installed');
+    if (!this.o.underLauncher || !this.o.installRoot) throw new UpdateError('not_service');
     const v = await this.stage();
     this.requestRestart();
     return v;

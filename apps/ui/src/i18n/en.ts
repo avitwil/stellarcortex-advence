@@ -190,6 +190,9 @@ export const en = {
     cost: 'Cost', turns: 'Turns', notReported: 'Not reported', note: 'Numbers are what each provider reported. Costs are shown only where the provider reports them.',
   },
   errors: {
+    not_service: 'This server is not running as an installed service.', busy: 'An update is already being prepared.', up_to_date: 'Already up to date.',
+    runtime_changed: 'This update needs a new runtime. Run the installer again.', permission_needed: 'Allow this app to install updates, then try again.',
+    bad_hash: 'The download does not match the signed release. It was not installed.', bad_signature: 'The update is not signed with the release key. It was not installed.',
     invalid_time_zone: 'That time zone is not known.', invalid_schedule: 'That schedule is not valid (minute hour day month weekday).',
     mcp_unavailable: 'MCP is not available on this server.', mcp_server_disabled: 'That MCP server is turned off.', invalid_path: 'That path is not valid.',
     cannot_change_to_webhook: 'Create a new routine for a webhook.', already_used: 'This suggestion was already used.',
@@ -349,6 +352,25 @@ export const en = {
     },
     users: { add: 'Add Google account', email: 'Email address', bound: 'Signed in', notYet: 'Not signed in yet' },
     comingInPhase: 'Available in a later version.',
+  },
+  updates: {
+    thisApp: 'This app', server: 'Server', check: 'Check for updates', upToDate: 'Up to date.',
+    available: 'Version {{version}} is available.', installApp: 'Download and install', installServer: 'Install and restart',
+    restarting: 'Installing {{version}}. The server restarts and reconnects by itself; if the new version fails its health check it goes back to this one.',
+    checked: 'Checked {{when}}', notSetUp: 'This server build has no update feed or release key, so it cannot update itself.',
+    notInstalled: 'This server is not running as an installed service, so it cannot install updates. Use the installer.',
+    rolledBack: 'The update to {{version}} failed its health check and the server went back to {{from}}.',
+    desktopAuto: 'This app checks for updates by itself. An update installs only after its release signature is verified.',
+    errors: {
+      feed_unavailable: 'The update feed cannot be reached.', feed_not_https: 'The update feed must use https.',
+      bad_signature: 'The update is not signed with this server\'s release key. It was not installed.', bad_manifest: 'The update information is not valid.',
+      wrong_component: 'The update information is not valid.', no_key: 'This build has no release key.', too_large: 'The update information is not valid.',
+      no_file: 'There is no update for this operating system yet.',
+    },
+  },
+  browserUi: {
+    toggle: 'Allow signing in from a web browser',
+    help: 'Off by default. When on, a browser can open this server\'s address, but it still needs Google sign-in and a device approval, like any other device.',
   },
   time: { justNow: 'just now', minutesAgo: '{{n}} min ago', hoursAgo: '{{n}} h ago', daysAgo: '{{n}} d ago' },
 };

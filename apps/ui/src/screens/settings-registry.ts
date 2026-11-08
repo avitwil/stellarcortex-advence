@@ -5,6 +5,7 @@ import { BotsSection, ModelsSection, NotificationsSection, UsageSection } from '
 import { ComputerSection } from './chat/ComputerSettings';
 import { MemorySection, SkillsSection } from './chat/MemorySettings';
 import { GoogleSection, McpSection } from './chat/IntegrationSettings';
+import { BrowserUiSection, UpdatesSection } from './UpdateSettings';
 
 export const extraSections: Partial<Record<SectionId, ComponentType>> = {
   models: ModelsSection,
@@ -16,4 +17,6 @@ export const extraSections: Partial<Record<SectionId, ComponentType>> = {
   memory: MemorySection,
   google: GoogleSection,
   mcp: McpSection,
+  updates: UpdatesSection,
+  browserUi: BrowserUiSection,
 };

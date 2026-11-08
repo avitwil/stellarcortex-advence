@@ -74,5 +74,6 @@ export function electronBridge(api: DesktopApi): PlatformBridge {
     canScanQr: false,
     notify: (t, b) => api.notify(t, b),
     openExternal: (u) => void api.openExternal(u),
+    selfUpdating: true,
   };
 }

@@ -2,6 +2,7 @@
 // GoogleSignIn, Push). All server traffic goes through OkHttp with the pinned key (DL-016).
 import type { PlatformBridge, SocketHandlers } from './types';
 import { browserBridge } from './browser';
+import { checkAppUpdate, installAppUpdate, type AppUpdatePluginApi } from '../lib/app-update';
 
 interface CapPlugin {
   addListener(event: string, fn: (e: any) => void): Promise<{ remove(): void }> | { remove(): void };
@@ -76,5 +77,12 @@ export function androidBridge(): PlatformBridge {
       const r = await P.Push!.register({ pushServer });
       return r.endpoint ?? null;
     },
+    appUpdate: P.AppUpdate
+      ? {
+          version: async () => (await (P.AppUpdate as unknown as AppUpdatePluginApi).info()).versionName,
+          check: () => checkAppUpdate(P.AppUpdate as unknown as AppUpdatePluginApi),
+          install: (u) => installAppUpdate(P.AppUpdate as unknown as AppUpdatePluginApi, u),
+        }
+      : undefined,
   };
 }

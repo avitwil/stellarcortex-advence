@@ -7,14 +7,20 @@ android {
         applicationId "com.stellarcortex.advence"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        // Set by the release build (D-24); the update feed and release key are public values.
+        versionCode((System.getenv("ADVENCE_VERSION_CODE") ?: "1") as int)
+        versionName(System.getenv("ADVENCE_VERSION") ?: "0.1.0")
+        buildConfigField "String", "ADVENCE_FEED_URL", "\"${System.getenv('ADVENCE_FEED_URL') ?: ''}\""
+        buildConfigField "String", "ADVENCE_RELEASE_KEYS", "\"${System.getenv('ADVENCE_RELEASE_PUBKEY') ?: ''}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+    }
+    buildFeatures {
+        buildConfig true
     }
     // Release signing comes only from the environment (CI secrets); no keystore is ever
     // committed (secrets rule). Without it, the release APK is built unsigned.

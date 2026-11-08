@@ -232,7 +232,7 @@ describe('FR-CLI-05: update routes', () => {
     expect(st.json).toMatchObject({ current: '1.0.0', enabled: true, canApply: false });
     const ck = await owner.request('POST', '/v1/update/check');
     expect(ck.json.available.version).toBe('1.2.0');
-    expect((await owner.request('POST', '/v1/update/apply')).json.error).toBe('not_installed');
+    expect((await owner.request('POST', '/v1/update/apply')).json.error).toBe('not_service');
     await owner.request('POST', '/v1/allowlist', { email: 'member@example.com' });
     const member = await pairedClient(env, { approveAs: owner });
     expect((await member.loginWithCode(env.google, { sub: 'member-sub', email: 'member@example.com' })).status).toBe(200);

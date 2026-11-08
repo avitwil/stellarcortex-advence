@@ -56,4 +56,6 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Bot reply notifications (D-18). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- App updates from the signed release feed (D-24, FR-CLI-05). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>
