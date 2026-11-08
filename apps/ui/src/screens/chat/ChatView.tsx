@@ -99,7 +99,7 @@ export function ChatView({ view, setView }: ShellProps) {
         <Composer convId={convId} parentId={null} members={conv.kind === 'group' ? members : []} placeholderName={direct?.name ?? conv.title} onSent={() => (atBottom.current = true)} />
       </div>
       {thread && <ThreadPanel convId={convId} parentId={thread} members={conv.kind === 'group' ? members : []} onClose={() => setThread(null)} onBot={(b) => setProfile(b)} />}
-      {profile && <BotProfile bot={bots.find((b) => b.id === profile.id) ?? profile} onClose={() => setProfile(null)} onLibrary={() => { setProfile(null); setView({ kind: 'library', id: profile.id }); }} onComputer={() => { setComputer(profile); setProfile(null); }} />}
+      {profile && <BotProfile bot={bots.find((b) => b.id === profile.id) ?? profile} onClose={() => setProfile(null)} onLibrary={() => { setProfile(null); setView({ kind: 'library', id: profile.id }); }} onComputer={() => { setComputer(profile); setProfile(null); }} onRoutines={() => { setProfile(null); setView({ kind: 'routines' }); }} onActivity={() => { setProfile(null); setView({ kind: 'activity', id: profile.id }); }} />}
       {computer && <ComputerPanel bot={computer} onClose={() => setComputer(null)} />}
       {editGroup && conv.kind === 'group' && <NewGroup conv={conv} onClose={(id) => { setEditGroup(false); if (!id) setView({ kind: 'home' }); }} />}
     </div>

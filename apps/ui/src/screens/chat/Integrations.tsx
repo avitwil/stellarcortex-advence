@@ -4,8 +4,9 @@
 // on clients without a loopback receiver.
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { McpInput } from '@advence/protocol';
+import type { HeldAction, McpInput, Suggestion } from '@advence/protocol';
 import { useIntegrations } from '../../state/integrations';
+import { useProactive } from '../../state/proactive';
 import { useChat } from '../../state/chat';
 import { platform } from '../../platform';
 import { Icon } from '../../ui/Icon';
@@ -256,9 +257,81 @@ function GoogleCard({ openSettings }: { openSettings(): void }) {
   );
 }
 
+/** A proactive Bot's suggestion: one tap runs it start to finish (FR-PRO-04). */
+export function SuggestionCard({ s }: { s: Suggestion }) {
+  const { t } = useTranslation();
+  const toErr = useErr();
+  const bot = useChat((x) => x.botById(s.botId));
+  const { runSuggestion, dismissSuggestion } = useProactive();
+  const [err, setErr] = useState<string | null>(null);
+  const act = (fn: () => Promise<void>) => {
+    setErr(null);
+    void fn().catch((e) => setErr(toErr(e)));
+  };
+  return (
+    <section className="card stack" aria-label={t('proactive.suggestion', { title: s.title })}>
+      <div className="row wrap">
+        <Icon name="sparkle" />
+        <strong className="spacer bidi">{s.title}</strong>
+        {bot && <span className="badge">{bot.name}</span>}
+      </div>
+      {s.detail && <p className="dim bidi" style={{ margin: 0 }}>{s.detail}</p>}
+      {err && <div role="alert" className="error">{err}</div>}
+      <div className="row">
+        {s.status === 'running' ? <span className="dim" role="status">{t('proactive.running')}</span> : (
+          <>
+            <button className="btn primary" onClick={() => act(() => runSuggestion(s.id))}><Icon name="play" size={16} /> {t('proactive.doIt')}</button>
+            <button className="btn ghost" onClick={() => act(() => dismissSuggestion(s.id))}>{t('proactive.dismiss')}</button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** A Bot that is not proactive read outside content, then wanted to act: the user decides (NFR-SEC-11). */
+export function HeldCard({ h }: { h: HeldAction }) {
+  const { t } = useTranslation();
+  const toErr = useErr();
+  const bot = useChat((x) => x.botById(h.botId));
+  const decide = useProactive((x) => x.decide);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  let pretty = h.input;
+  try {
+    pretty = JSON.stringify(JSON.parse(h.input), null, 2);
+  } catch {
+    /* shown as sent */
+  }
+  const go = (allow: boolean) => {
+    setBusy(true);
+    setErr(null);
+    void decide(h.id, allow).catch((e) => setErr(toErr(e))).finally(() => setBusy(false));
+  };
+  return (
+    <section className="card stack" role="alert" aria-label={t('proactive.heldTitle', { bot: bot?.name ?? '' })}>
+      <div className="row wrap">
+        <Icon name="shield" />
+        <strong className="spacer">{t('proactive.heldTitle', { bot: bot?.name ?? '' })}</strong>
+      </div>
+      <p style={{ margin: 0 }}>{t('proactive.heldHelp')}</p>
+      <div className="stack" style={{ gap: 4 }}>
+        <span className="label">{t('proactive.heldTool', { tool: h.tool })}</span>
+        <pre className="mono" dir="ltr" style={{ margin: 0, maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: 'var(--bg-elev-2)', padding: 8, borderRadius: 'var(--radius-sm)' }}>{pretty}</pre>
+      </div>
+      {err && <div role="alert" className="error">{err}</div>}
+      <div className="row">
+        <button className="btn" disabled={busy} onClick={() => go(true)}>{t('proactive.allow')}</button>
+        <button className="btn primary" disabled={busy} onClick={() => go(false)}>{t('proactive.deny')}</button>
+      </div>
+    </section>
+  );
+}
+
 /** Shown above the main area: whatever is waiting on the user. */
 export function IntegrationTray({ openSettings }: { openSettings(section: 'google' | 'mcp'): void }) {
   const inputs = useIntegrations((s) => s.inputs);
+  const { held, suggestions } = useProactive();
   const activeConv = useChat((s) => s.activeConv);
   // The active chat's requests first.
   const sorted = [...inputs].sort((a, b) => Number(b.convId === activeConv) - Number(a.convId === activeConv) || a.createdAt - b.createdAt);
@@ -266,7 +339,9 @@ export function IntegrationTray({ openSettings }: { openSettings(section: 'googl
     <div className="tray stack">
       <GoogleCard openSettings={() => openSettings('google')} />
       <PasteCard />
+      {held.map((h) => <HeldCard key={h.id} h={h} />)}
       {sorted.map((i) => <InputCard key={i.id} input={i} />)}
+      {suggestions.slice(0, 5).map((s) => <SuggestionCard key={s.id} s={s} />)}
     </div>
   );
 }

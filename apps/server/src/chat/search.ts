@@ -14,6 +14,8 @@ export function ftsQuery(q: string): string {
 
 export class SearchIndex {
   private mem = new Database(':memory:');
+  /** the user's routines, by name (P6 sets this) */
+  private routines: (user: User) => { id: string; title: string }[] = () => [];
   constructor(private ctx: AppContext, private store: ChatStore, private library: Library) {
     this.mem.exec("CREATE VIRTUAL TABLE m USING fts5(msg_id UNINDEXED, user_id UNINDEXED, conv_id UNINDEXED, created_at UNINDEXED, text, tokenize = 'unicode61 remove_diacritics 2')");
   }
@@ -36,6 +38,10 @@ export class SearchIndex {
     this.mem.prepare('DELETE FROM m WHERE msg_id = ?').run(r.id);
     if (r.status !== 'done') return;
     this.mem.prepare('INSERT INTO m(msg_id, user_id, conv_id, created_at, text) VALUES(?,?,?,?,?)').run(r.id, userId, r.conversation_id, r.created_at, this.store.body(r).text);
+  }
+
+  setRoutines(fn: (user: User) => { id: string; title: string }[]): void {
+    this.routines = fn;
   }
 
   removeConversation(convId: string): void {
@@ -61,8 +67,7 @@ export class SearchIndex {
       bots: bots.filter((b) => has(b.name)).slice(0, 20),
       groups,
       files,
-      // Routines arrive in P6 (FR-UI-06); the result shape already carries them.
-      routines: [],
+      routines: this.routines(user).filter((r) => has(r.title)).slice(0, 20),
     };
   }
 

@@ -1,17 +1,21 @@
 // Bot profile (FR-UI-03): routines, notifications, Library, model and engine, computer status,
-// "Proactive" and "Host control" toggles. Opened from the chat header on every client.
+// "Proactive" (with its pause, FR-PRO-06) and "Host control" toggles, and what the Bot did
+// on its own (FR-PRO-05). Opened from the chat header on every client.
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SUBSCRIPTION_KINDS, type Bot, type LibraryItem } from '@advence/protocol';
+import { SUBSCRIPTION_KINDS, type ActivityEntry, type Bot, type LibraryItem } from '@advence/protocol';
 import { useChat } from '../../state/chat';
+import { useProactive } from '../../state/proactive';
 import { Icon } from '../../ui/Icon';
 import { Modal } from './Modal';
 import { BotAvatar } from './BotAvatar';
 import { BotEditor } from './BotEditor';
 import { computerLabel } from './ComputerView';
 
-export function BotProfile({ bot, onClose, onLibrary, onComputer }: { bot: Bot; onClose(): void; onLibrary(): void; onComputer(): void }) {
-  const { t } = useTranslation();
+export function BotProfile({ bot, onClose, onLibrary, onComputer, onRoutines, onActivity }: { bot: Bot; onClose(): void; onLibrary(): void; onComputer(): void; onRoutines?(): void; onActivity?(): void }) {
+  const { t, i18n } = useTranslation();
+  const routines = useProactive((s) => s.routines).filter((r) => r.botId === bot.id);
+  const [acts, setActs] = useState<ActivityEntry[]>([]);
   const { client, sources, loadSources, refresh, libraryTick, computers, loadComputer } = useChat();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [edit, setEdit] = useState(false);
@@ -20,8 +24,12 @@ export function BotProfile({ bot, onClose, onLibrary, onComputer }: { bot: Bot; 
   useEffect(() => {
     void client?.call<LibraryItem[]>('GET', `/v1/library?botId=${bot.id}&limit=5`).then(setItems, () => undefined);
   }, [client, bot.id, libraryTick]);
+  useEffect(() => {
+    void client?.call<ActivityEntry[]>('GET', `/v1/bots/${bot.id}/activity?limit=5`).then(setActs, () => undefined);
+  }, [client, bot.id, bot.proactive, bot.paused]);
   const source = sources.find((s) => s.id === bot.sourceId);
-  const patch = async (body: Partial<Pick<Bot, 'proactive' | 'hostControl' | 'notify'>>) => {
+  const fmt = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
+  const patch = async (body: Partial<Pick<Bot, 'proactive' | 'paused' | 'hostControl' | 'notify'>>) => {
     await client!.call('PATCH', `/v1/bots/${bot.id}`, body);
     await refresh();
   };
@@ -58,14 +66,34 @@ export function BotProfile({ bot, onClose, onLibrary, onComputer }: { bot: Bot; 
           </div>
           <div className="list-row">
             <Icon name="routine" />
-            <div className="spacer"><div>{t('nav.routines')}</div><div className="faint" style={{ fontSize: 13 }}>{t('bot.noRoutines')}</div></div>
+            <div className="spacer"><div>{t('nav.routines')}</div><div className="faint" style={{ fontSize: 13 }}>{routines.length ? t('bot.routineCount', { count: routines.length }) : t('bot.noRoutines')}</div></div>
+            {onRoutines && <button className="btn small" onClick={onRoutines}>{t('common.open')}</button>}
           </div>
         </div>
 
         <div className="list">
           <Toggle icon="bell" label={t('bot.notifications')} help={t('bot.notificationsHelp')} on={bot.notify === 'all'} onChange={(v) => void patch({ notify: v ? 'all' : 'off' })} />
           <Toggle icon="sparkle" label={t('bot.proactive')} help={t('bot.proactiveHelp')} on={bot.proactive} onChange={(v) => void patch({ proactive: v })} />
+          {bot.proactive && <Toggle icon="pause" label={t('bot.paused')} help={t('bot.pausedHelp')} on={bot.paused} onChange={(v) => void patch({ paused: v })} />}
           <Toggle icon="hand" label={t('bot.hostControl')} help={t('bot.hostControlHelp')} on={bot.hostControl} onChange={(v) => void patch({ hostControl: v })} />
+        </div>
+
+        <div>
+          <div className="row" style={{ marginBlockEnd: 6 }}>
+            <strong className="spacer">{t('nav.activity')}</strong>
+            {onActivity && <button className="btn ghost small" onClick={onActivity}>{t('bot.allActivity')}</button>}
+          </div>
+          {acts.length === 0 ? <p className="dim" style={{ margin: 0 }}>{t('activity.empty')}</p> : (
+            <div className="list">
+              {acts.map((a) => (
+                <div key={a.id} className="list-row">
+                  <Icon name="activity" />
+                  <span className="spacer bidi">{t(`activity.kinds.${a.kind}`, { ...a.params, defaultValue: a.kind })}</span>
+                  <span className="faint" style={{ fontSize: 12 }}>{fmt.format(a.at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -84,7 +112,7 @@ export function BotProfile({ bot, onClose, onLibrary, onComputer }: { bot: Bot; 
   );
 }
 
-function Toggle({ icon, label, help, on, onChange }: { icon: 'bell' | 'sparkle' | 'hand'; label: string; help: string; on: boolean; onChange(v: boolean): void }) {
+function Toggle({ icon, label, help, on, onChange }: { icon: 'bell' | 'sparkle' | 'hand' | 'pause'; label: string; help: string; on: boolean; onChange(v: boolean): void }) {
   return (
     <label className="list-row" style={{ cursor: 'pointer' }}>
       <Icon name={icon} />

@@ -65,6 +65,7 @@ export class Proactivity implements AutonomyPolicy {
     this.now = d.now ?? Date.now;
     chat.runtime.setAutonomy(this);
     chat.runtime.setTools(this.suggestTools());
+    chat.search.setRoutines((user) => this.list(user, null).map((r) => ({ id: r.id, title: r.name })));
     chat.bots.onChange((bot) => {
       if (!bot.proactive || bot.paused) this.stopRuns((r) => r.botId === bot.id, 'stopped');
     });

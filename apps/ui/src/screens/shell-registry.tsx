@@ -1,5 +1,5 @@
 // Shell content (P2): Bots and group chats in the sidebar; the main area shows a chat, the
-// Library or the activity log.
+// Library, the routines or the activity log.
 import type { ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { View } from './Shell';
@@ -8,6 +8,7 @@ import { ChatSidebar } from './chat/Sidebar';
 import { ChatView } from './chat/ChatView';
 import { LibraryView } from './chat/LibraryView';
 import { ActivityView } from './chat/ActivityView';
+import { RoutinesView } from './chat/RoutinesView';
 import { Logo } from '../ui/Icon';
 
 export interface ShellProps {
@@ -34,6 +35,8 @@ function Main(p: ShellProps) {
       return <LibraryView {...p} />;
     case 'activity':
       return <ActivityView {...p} />;
+    case 'routines':
+      return <RoutinesView {...p} />;
     default:
       return <Home />;
   }

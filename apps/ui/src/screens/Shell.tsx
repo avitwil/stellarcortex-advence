@@ -10,9 +10,10 @@ import type { SocketState } from '../api/socket';
 import { shellExtension } from './shell-registry';
 import { useChat } from '../state/chat';
 import { useIntegrations } from '../state/integrations';
+import { useProactive } from '../state/proactive';
 import { IntegrationTray } from './chat/Integrations';
 
-export interface View { kind: 'home' | 'settings' | 'conv' | 'library' | 'activity'; id?: string; section?: SectionId; focus?: string }
+export interface View { kind: 'home' | 'settings' | 'conv' | 'library' | 'activity' | 'routines'; id?: string; section?: SectionId; focus?: string }
 
 export function Shell() {
   const { t } = useTranslation();
@@ -21,6 +22,7 @@ export function Shell() {
   const [sock, setSock] = useState<SocketState>('connecting');
   useEffect(() => useChat.getState().attach(client), [client]);
   useEffect(() => useIntegrations.getState().attach(client), [client]);
+  useEffect(() => useProactive.getState().attach(client), [client]);
   useEffect(() => {
     if (!client) return;
     const s = client.openSocket();

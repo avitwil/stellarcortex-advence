@@ -8,6 +8,7 @@ import type { ShellProps } from '../shell-registry';
 import { BotAvatar } from './BotAvatar';
 import { BotEditor } from './BotEditor';
 import { NewGroup } from './NewGroup';
+import { PauseAllButton } from './RoutinesView';
 
 export function ChatSidebar({ view, setView }: ShellProps) {
   const { t } = useTranslation();
@@ -83,7 +84,7 @@ export function ChatSidebar({ view, setView }: ShellProps) {
           ))}
           {results.routines.length > 0 && <div className="sidebar-title">{t('nav.routines')}</div>}
           {results.routines.map((r) => (
-            <div key={r.id} className="nav-item"><Icon name="routine" /> {r.title}</div>
+            <button key={r.id} className="nav-item" onClick={() => { setQ(''); setView({ kind: 'routines' }); }}><Icon name="routine" /> {r.title}</button>
           ))}
           {!results.bots.length && !results.groups.length && !results.messages.length && !results.files.length && !results.routines.length && (
             <p className="dim" style={{ padding: '0 8px' }}>{t('search.none')}</p>
@@ -93,7 +94,9 @@ export function ChatSidebar({ view, setView }: ShellProps) {
         <>
           <div className="sidebar-section">
             <button className={`nav-item ${view.kind === 'library' ? 'active' : ''}`} onClick={() => setView({ kind: 'library' })}><Icon name="library" /> {t('nav.library')}</button>
+            <button className={`nav-item ${view.kind === 'routines' ? 'active' : ''}`} onClick={() => setView({ kind: 'routines' })}><Icon name="routine" /> {t('nav.routines')}</button>
             <button className={`nav-item ${view.kind === 'activity' ? 'active' : ''}`} onClick={() => setView({ kind: 'activity' })}><Icon name="activity" /> {t('nav.activity')}</button>
+            {bots.some((b) => b.proactive) && <div style={{ padding: '4px 8px' }}><PauseAllButton compact /></div>}
           </div>
           <div className="sidebar-section">
             <div className="sidebar-title">{t('nav.bots')}</div>

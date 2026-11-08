@@ -179,6 +179,8 @@ describe('FR-UI-06 routines tab API', () => {
     expect(r.nextRun).toBeGreaterThan(Date.now());
     expect(r.webhookUrl).toBeNull();
     expect((await req(owner, 'GET', '/v1/routines')).routines.map((x: Routine) => x.id)).toContain(r.id);
+    // FR-UI-01: global search finds routines too.
+    expect((await req(owner, 'GET', '/v1/search?q=plan')).routines).toEqual([{ id: r.id, title: 'Plants' }]);
     const paused = await req(owner, 'PATCH', `/v1/routines/${r.id}`, { paused: true });
     expect(paused).toMatchObject({ paused: true, nextRun: null });
     expect((await req(owner, 'PATCH', `/v1/routines/${r.id}`, { paused: false })).nextRun).toBe(r.nextRun);
