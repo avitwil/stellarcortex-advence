@@ -14,6 +14,8 @@ extraResources:
   - from: ../ui/dist
     to: ui
 asar: true
+# Plain file names: release manifests list files by name (D-24).
+artifactName: stellarcortex-advence-${version}-${os}-${arch}.${ext}
 extraMetadata:
   name: stellarcortex-advence
 afterPack: build/afterPack.cjs
