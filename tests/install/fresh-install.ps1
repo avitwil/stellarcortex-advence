@@ -43,9 +43,31 @@ powershell -ExecutionPolicy Bypass -c "irm $Feed/install.ps1 | iex"
 if ($LASTEXITCODE -eq 0) { throw 'tampered install succeeded' }
 Copy-Item (Join-Path $Work 'good.tar.gz') $bundle -Force
 
+function Diagnose {
+  # The service's console is hidden, so show why it did not come up.
+  Write-Host '== diagnostics'
+  $root = Join-Path $env:LOCALAPPDATA 'Advence\server'
+  $task = Get-ScheduledTask -TaskName 'StellarCortex Advence server' -ErrorAction SilentlyContinue
+  if ($task) {
+    $task.Principal | Format-List | Out-String | Write-Host
+    Get-ScheduledTaskInfo -InputObject $task | Format-List | Out-String | Write-Host
+  }
+  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | ForEach-Object { Write-Host "node: $($_.CommandLine)" }
+  $node = Join-Path $root 'node\node.exe'
+  if (Test-Path $node) {
+    Stop-ScheduledTask -TaskName 'StellarCortex Advence server' -ErrorAction SilentlyContinue
+    $log = Join-Path $Work 'launcher.log'
+    $p = Start-Process -PassThru -NoNewWindow -FilePath $node -ArgumentList "`"$root\launcher.mjs`"" -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+    Start-Sleep 30
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    Write-Host '-- launcher output'; Get-Content $log, "$log.err" -ErrorAction SilentlyContinue | Write-Host
+    Write-Host '-- health'; Health | Write-Host
+  }
+}
+
 Write-Host '== fresh install'
 powershell -ExecutionPolicy Bypass -c "irm $Feed/install.ps1 | iex"
-if ($LASTEXITCODE) { throw 'install failed' }
+if ($LASTEXITCODE) { Diagnose; throw 'install failed' }
 WaitVersion '0.9.0'
 $advence = Join-Path $env:LOCALAPPDATA 'Advence\bin\advence.cmd'
 & $advence version
