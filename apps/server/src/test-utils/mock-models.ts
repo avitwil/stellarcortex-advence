@@ -12,6 +12,8 @@ export interface Turn {
   status?: number;
   /** wait this long (with the stream open) before answering */
   delayMs?: number;
+  /** pause this long after each text piece (NFR-PERF-01 measures the first one) */
+  gapMs?: number;
 }
 export interface SeenRequest { kind: 'openai' | 'anthropic'; body: any; headers: http.IncomingHttpHeaders }
 
@@ -32,6 +34,8 @@ export class MockModels {
   server!: http.Server;
   url = '';
   requests: SeenRequest[] = [];
+  /** when the first text piece of the latest reply was written to the socket */
+  firstChunkAt = 0;
   /** Decides the reply for each request; the default echoes the last user text. */
   script: (r: SeenRequest) => Turn = (r) => ({ text: ['Echo: ', lastUserText(r.kind, r.body)], usage: { input: 11, output: 7 } });
 
@@ -88,15 +92,21 @@ export class MockModels {
     if (t.delayMs) {
       res.flushHeaders();
       await new Promise((r) => setTimeout(r, t.delayMs));
-      if (res.destroyed || req.destroyed) return;
+      if (res.destroyed || res.socket?.destroyed) return;
     }
-    if (kind === 'openai') this.openai(res, t);
-    else this.anthropic(res, t, seen.body.model);
+    if (kind === 'openai') await this.openai(res, t);
+    else await this.anthropic(res, t, seen.body.model);
   }
 
-  private openai(res: http.ServerResponse, t: Turn): void {
+  private async piece(res: http.ServerResponse, t: Turn, i: number, write: () => void): Promise<void> {
+    write();
+    if (i === 0) this.firstChunkAt = Date.now();
+    if (t.gapMs) await new Promise((r) => setTimeout(r, t.gapMs));
+  }
+
+  private async openai(res: http.ServerResponse, t: Turn): Promise<void> {
     const send = (j: unknown) => res.write(`data: ${JSON.stringify(j)}\n\n`);
-    for (const piece of t.text ?? []) send({ choices: [{ index: 0, delta: { content: piece } }] });
+    for (const [i, piece] of (t.text ?? []).entries()) await this.piece(res, t, i, () => send({ choices: [{ index: 0, delta: { content: piece } }] }));
     if (t.tool) {
       const args = JSON.stringify(t.tool.input);
       send({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: t.tool.name, arguments: args.slice(0, 5) } }] } }] });
@@ -106,14 +116,14 @@ export class MockModels {
     res.end('data: [DONE]\n\n');
   }
 
-  private anthropic(res: http.ServerResponse, t: Turn, model: string): void {
+  private async anthropic(res: http.ServerResponse, t: Turn, model: string): Promise<void> {
     const send = (event: string, j: Record<string, unknown>) => res.write(`event: ${event}\ndata: ${JSON.stringify({ type: event, ...j })}\n\n`);
     const u = t.usage ?? { input: 0, output: 0 };
     send('message_start', { message: { id: 'msg_mock', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: u.input, output_tokens: 1 } } });
     let i = 0;
     if (t.text?.length) {
       send('content_block_start', { index: i, content_block: { type: 'text', text: '' } });
-      for (const piece of t.text) send('content_block_delta', { index: i, delta: { type: 'text_delta', text: piece } });
+      for (const [k, piece] of t.text.entries()) await this.piece(res, t, k, () => send('content_block_delta', { index: i, delta: { type: 'text_delta', text: piece } }));
       send('content_block_stop', { index: i });
       i++;
     }

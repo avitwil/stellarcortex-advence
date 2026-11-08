@@ -27,6 +27,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm check:brand
       - run: pnpm check:licenses
+      - name: Cost audit (NFR-COST-01)
+        run: pnpm check:cost
       - run: pnpm test
       # FR-LRN-03 / FR-SKL-05: skills made by the tests pass the reference validator.
       - name: skills-ref validate
